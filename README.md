@@ -1,12 +1,12 @@
 # 工业能耗预测与异常检测
 
 本项目提供了一个完整的时间序列分析流程，包括模拟数据生成、模型训练、能耗预测和异常检测。项目使用 `darts` 库来展示如何应用不同的模型
-（如 Temporal Fusion Transformer (TFT) 和 LightGBM）来解决真实的工业问题。
+（如 Temporal Fusion Transformer (TFT)、LightGBM和TiDE）来解决真实的工业问题。
 
 ## 📋 功能特性
 
 - **模拟数据生成**: 创建一个逼真的数据集 (`simulated_plant_data.csv`)，模拟包含产量、温度和湿度的每小时工业数据，其中涵盖了日、周和季节性周期，并注入了异常点。
-- **时间序列预测**: 训练和评估多种先进的预测模型（TFT, LightGBM），以预测未来的能源消耗。
+- **时间序列预测**: 训练和评估多种先进的预测模型（TFT, LightGBM, TiDE），以预测未来的能源消耗。
 - **协变量支持**: 演示了如何使用过去、现在和未来的协变量（如产量水平、温度和基于时间的特征）来提高模型的准确性。
 - **异常检测**: 实现了一个基于残差的异常检测系统。模型会预测预期的能源使用量，而显著的偏差则被标记为异常。
 - **可视化**: 生成图表以可视化历史数据、检测到的异常和未来的预测。
@@ -79,6 +79,9 @@ conda run -n darts pip install pandas numpy "darts[torch]" matplotlib scikit-lea
 
     # 或者，训练 Temporal Fusion Transformer (TFT) 模型
     conda run -n darts python 02_train_and_evaluate.py
+    
+    # 或者，训练 TiDE 模型
+    conda run -n darts python 02_train_and_evaluate_tide.py
     ```
     训练好的模型将保存在 `demo/models/` 目录下。
 
@@ -87,8 +90,11 @@ conda run -n darts pip install pandas numpy "darts[torch]" matplotlib scikit-lea
 
     ```bash
     conda run -n darts python 03_anomaly_detection_lgbm.py
+    
+    # 或者，如果您训练了 TiDE 模型
+    conda run -n darts python 03_anomaly_detection_tide.py
     ```
-    此脚本将使用训练好的模型在历史数据中查找异常，并生成2025年上半年的能耗预测。显示结果的最终图表将保存在 `demo/plots/` 目录下。
+    此脚本将使用训练好的模型在历史数据中查找异常，并生成2025年上半年的能耗���测。显示结果的最终图表将保存在 `demo/plots/` 目录下。
 
 ## 🛠️ 方法论
 
