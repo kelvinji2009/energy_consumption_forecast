@@ -5,7 +5,7 @@ import torch
 
 from darts import TimeSeries
 from darts.dataprocessing.transformers import Scaler
-from darts.models import LSTMModel # Changed to LSTMModel
+from darts.models import RNNModel # Changed to RNNModel
 from darts.metrics import mape
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
 
@@ -60,9 +60,11 @@ print("Initializing and training the LSTM model for total energy consumption..."
 input_chunk_length = 24 * 7
 output_chunk_length = 24
 
-model_energy = LSTMModel(
+model_energy = RNNModel(
+    model='LSTM',
     input_chunk_length=input_chunk_length,
     output_chunk_length=output_chunk_length,
+    training_length=input_chunk_length,
     n_epochs=20,  # Using a smaller number of epochs for this demo
     random_state=42,
     model_name=MODEL_NAME,
