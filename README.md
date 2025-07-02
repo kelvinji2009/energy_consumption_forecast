@@ -32,12 +32,22 @@
 
 ## 🚀 快速开始
 
-### 环境准备
+### 环境准备（conda）
 
-请确保您已安装 Python。本项目依赖以下库，您可以使用 pip 进行安装：
+请确保您已安装 conda，并已经创建了对应darts env。
 
 ```bash
-pip install pandas numpy "darts[torch]" matplotlib scikit-learn joblib
+conda env list | grep darts
+```
+如果未找到darts env，使用以下命令创建
+```bash
+conda create -n darts python=3.9 -y
+```
+
+本项目依赖以下库，您可以使用 pip 进行安装：
+
+```bash
+conda run -n darts pip install pandas numpy "darts[torch]" matplotlib scikit-learn joblib
 ```
 *注意: `darts[torch]` 会确保 PyTorch (TFT 模型的一个依赖项) 被正确安装。*
 
@@ -47,7 +57,7 @@ pip install pandas numpy "darts[torch]" matplotlib scikit-learn joblib
     首先，在项目的根目录下运行生成脚本来创建模拟数据集。
 
     ```bash
-    python generate_data.py
+    conda run -n darts python generate_data.py
     ```
     这将在 `data/` 目录下创建 `simulated_plant_data.csv` 文件。
 
@@ -56,7 +66,7 @@ pip install pandas numpy "darts[torch]" matplotlib scikit-learn joblib
 
     ```bash
     cd demo
-    python 01_data_preprocessing.py
+    conda run -n darts python 01_data_preprocessing.py
     ```
     这将在 `demo/` 目录下创建 `processed_data.csv` 文件。
 
@@ -65,10 +75,10 @@ pip install pandas numpy "darts[torch]" matplotlib scikit-learn joblib
 
     ```bash
     # 训练 LightGBM 模型
-    python 02_train_and_evaluate_lgbm.py
+    conda run -n darts python 02_train_and_evaluate_lgbm.py
 
     # 或者，训练 Temporal Fusion Transformer (TFT) 模型
-    python 02_train_and_evaluate.py
+    conda run -n darts python 02_train_and_evaluate.py
     ```
     训练好的模型将保存在 `demo/models/` 目录下。
 
@@ -76,7 +86,7 @@ pip install pandas numpy "darts[torch]" matplotlib scikit-learn joblib
     训练模型后，运行相应的异常检测脚本。例如，如果您在上一步中训练了 LightGBM 模型：
 
     ```bash
-    python 03_anomaly_detection_lgbm.py
+    conda run -n darts python 03_anomaly_detection_lgbm.py
     ```
     此脚本将使用训练好的模型在历史数据中查找异常，并生成2025年上半年的能耗预测。显示结果的最终图表将保存在 `demo/plots/` 目录下。
 
