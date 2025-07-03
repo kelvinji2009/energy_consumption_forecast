@@ -1,3 +1,4 @@
+
 import pandas as pd
 import numpy as np
 import os
@@ -8,6 +9,14 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
+import sys
+# 将项目根目录添加到sys.path，以便能够导入database包
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(PROJECT_ROOT)
+
+from sqlalchemy import select
+from database.database import engine, models_table # 导入数据库引擎和模型表
+
 # 延迟导入Darts
 # from darts import TimeSeries
 # from darts.utils.timeseries_generation import datetime_attribute_timeseries
@@ -15,11 +24,8 @@ from contextlib import asynccontextmanager
 print("--- Script main.py starting to execute ---")
 
 # --- Configuration ---
-MODEL_DIR = os.path.join("..", "demo", "models")
-DEFAULT_MODEL_NAME = "lgbm_energy_model"
-MODEL_PATH = os.path.join(MODEL_DIR, DEFAULT_MODEL_NAME, "model.joblib")
-
-print(f"Model path configured to: {os.path.abspath(MODEL_PATH)}")
+# MODEL_DIR 和 MODEL_PATH 不再直接用于加载，但保留作为参考或备用
+# MODEL_DIR = os.path.join("..", "demo", "models") # 不再需要
 
 # --- Pydantic Models for Data Validation ---
 
@@ -47,14 +53,39 @@ class PredictionResponse(BaseModel):
 async def lifespan(app: FastAPI):
     print("[Lifespan] Startup event triggered.")
     app.state.model_cache = {}
+    
+    # 尝试连接数据库并加载活跃模型
     try:
-        print(f"[Lifespan] Attempting to load model from: {MODEL_PATH}")
-        model = joblib.load(MODEL_PATH)
-        app.state.model_cache["default"] = model
-        print("[Lifespan] Model loaded successfully and cached.")
+        print("[Lifespan] Attempting to connect to database and load active models...")
+        with engine.connect() as connection:
+            # 查询所有活跃的模型
+            stmt = select(models_table).where(models_table.c.is_active == True)
+            result = connection.execute(stmt).fetchall()
+            
+            if not result:
+                print("[Lifespan] No active models found in the database.")
+            
+            for row in result:
+                asset_id = row.asset_id
+                # 关键修复：直接将模型相对路径与项目根目录拼接
+                model_path = os.path.join(PROJECT_ROOT, row.path) 
+                model_type = row.model_type
+                
+                try:
+                    print(f"[Lifespan] Loading {model_type} model for asset '{asset_id}' from: {model_path}")
+                    model = joblib.load(model_path)
+                    app.state.model_cache[asset_id] = model
+                    print(f"[Lifespan] Model for asset '{asset_id}' loaded successfully.")
+                except Exception as e:
+                    print(f"[Lifespan] ERROR: Failed to load model for asset '{asset_id}' from {model_path}. Error: {e}")
+                    # 即使单个模型加载失败，也尝试加载其他模型
+                    
     except Exception as e:
-        print(f"[Lifespan] CRITICAL: Failed to load model during startup. Error: {e}")
+        print(f"[Lifespan] CRITICAL: Database connection or initial model loading failed during startup. Error: {e}")
+        # 如果数据库连接失败，服务仍然会启动，但模型缓存将为空
+
     yield
+
     print("[Lifespan] Shutdown event triggered.")
     app.state.model_cache.clear()
     print("[Lifespan] Model cache cleared.")
@@ -65,7 +96,7 @@ print("Initializing FastAPI app...")
 app = FastAPI(
     title="能耗预测与异常检测API",
     description="一个用于工业能耗预测和异常检测的API服务。",
-    version="1.9.0", # 版本号+1
+    version="2.2.0", # 版本号更新
     lifespan=lifespan
 )
 print("FastAPI app initialized.")
@@ -78,7 +109,7 @@ def _create_timeseries_from_request(data: List[TimeSeriesDataPoint]) -> 'TimeSer
     timestamps = [item.timestamp for item in data]
     values = [item.value for item in data]
     df = pd.DataFrame({"timestamp": pd.to_datetime(timestamps), "value": values})
-    return TimeSeries.from_dataframe(df, "timestamp", "value", freq='h')
+    return TimeSeries.from_dataframe(df, "timestamp", "value", freq='H')
 
 def _build_future_covariates(series: 'TimeSeries', horizon: int, model) -> 'TimeSeries':
     from darts import TimeSeries
@@ -117,12 +148,15 @@ def predict(asset_id: str, request: PredictionRequest, http_request: Request):
     print(f"\n--- Received prediction request for asset: {asset_id} ---")
     
     model_cache = http_request.app.state.model_cache
-    if "default" not in model_cache:
-        print("[Error] Model not found in cache.")
-        raise HTTPException(status_code=503, detail="Model is not loaded.")
+    
+    # 从缓存中获取特定资产的模型
+    model = model_cache.get(asset_id)
+    
+    if not model:
+        print(f"[Error] No active model found for asset: {asset_id}")
+        raise HTTPException(status_code=503, detail=f"No active model found for asset '{asset_id}'. Please ensure a model is trained and activated for this asset.")
 
-    model = model_cache["default"]
-    print("Model retrieved from cache.")
+    print(f"Model for asset '{asset_id}' retrieved from cache.")
 
     try:
         series = _create_timeseries_from_request(request.historical_data)
