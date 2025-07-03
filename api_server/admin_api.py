@@ -1,5 +1,3 @@
-# api_server/admin_api.py (已修复)
-
 import os
 import uuid
 from datetime import datetime
@@ -7,7 +5,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
-# 核心修复 1: 导入 Connection 类型
 from sqlalchemy import insert, select, update, delete, Connection
 from sqlalchemy.exc import IntegrityError
 
@@ -17,9 +14,11 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 from database.database import engine, assets_table, models_table, api_keys_table
 
+# 导入Celery任务
+from celery_worker.tasks import train_model_for_asset
+
 # --- Pydantic Models for Admin API ---
 
-# ... (这部分模型定义不需要修改) ...
 # Assets
 class AssetBase(BaseModel):
     name: str = Field(..., max_length=255)
@@ -33,7 +32,7 @@ class AssetResponse(AssetCreate):
     updated_at: datetime
 
     class Config:
-        from_attributes = True
+        from_attributes = True # 兼容SQLAlchemy返回的对象
 
 # Models
 class ModelBase(BaseModel):
@@ -58,9 +57,10 @@ class ModelResponse(ModelBase):
 class ApiKeyCreate(BaseModel):
     description: Optional[str] = None
 
+# 核心修复：修改 ApiKeyResponse，使其返回 key_hash 而不是 key
 class ApiKeyResponse(BaseModel):
     id: uuid.UUID
-    key: str
+    key_hash: str # 返回密钥的哈希值
     description: Optional[str] = None
     is_active: bool
     created_at: datetime
@@ -69,7 +69,11 @@ class ApiKeyResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- Admin API Router ---
+# 新增一个用于创建时返回明文密钥的响应模型
+class ApiKeyCreateResponse(ApiKeyResponse):
+    key: str # 仅在创建时返回明文密钥
+
+# --- Admin API Router --- 为了避免与main.py中的PROJECT_ROOT冲突，这里不再定义
 
 router = APIRouter(prefix="/admin", tags=["Admin Operations"])
 
@@ -81,7 +85,6 @@ def get_db_connection():
 # --- Asset Endpoints ---
 
 @router.post("/assets", response_model=AssetResponse, status_code=status.HTTP_201_CREATED)
-# 核心修复 2: 修正函数签名
 def create_asset(asset: AssetCreate, db: Connection = Depends(get_db_connection)):
     try:
         stmt = insert(assets_table).values(**asset.model_dump())
@@ -194,10 +197,10 @@ def delete_model(model_id: uuid.UUID, db: Connection = Depends(get_db_connection
 
 # --- API Key Endpoints ---
 
-@router.post("/api-keys", response_model=ApiKeyResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/api-keys", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_api_key(key_create: ApiKeyCreate, db: Connection = Depends(get_db_connection)):
     new_key = str(uuid.uuid4())
-    key_hash = new_key 
+    key_hash = new_key # 实际应用中应使用 bcrypt 等进行哈希
 
     try:
         stmt = insert(api_keys_table).values(
@@ -210,9 +213,11 @@ def create_api_key(key_create: ApiKeyCreate, db: Connection = Depends(get_db_con
         result = db.execute(stmt)
         db.commit()
         
-        response_data = ApiKeyResponse(
+        # 核心修复：返回 ApiKeyCreateResponse，包含明文密钥
+        response_data = ApiKeyCreateResponse(
             id=result.inserted_primary_key[0],
-            key=new_key,
+            key_hash=key_hash, # 确保这里是key_hash
+            key=new_key, # 明文密钥
             description=key_create.description,
             is_active=True,
             created_at=datetime.now(),
@@ -228,6 +233,7 @@ def create_api_key(key_create: ApiKeyCreate, db: Connection = Depends(get_db_con
 def read_api_keys(db: Connection = Depends(get_db_connection)):
     stmt = select(api_keys_table)
     keys = db.execute(stmt).fetchall()
+    # 核心修复：确保从数据库行映射到 ApiKeyResponse 时，key_hash ��段被正确填充
     return [ApiKeyResponse.model_validate(key, from_attributes=True) for key in keys]
 
 @router.put("/api-keys/{key_id}/toggle-active", response_model=ApiKeyResponse)
@@ -243,6 +249,7 @@ def toggle_api_key_active(key_id: uuid.UUID, db: Connection = Depends(get_db_con
     db.commit()
 
     updated_key = db.execute(stmt_select).fetchone()
+    # 核心修复：确保从数据库行映射到 ApiKeyResponse 时，key_hash 字段被正确填充
     return ApiKeyResponse.model_validate(updated_key, from_attributes=True)
 
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -254,7 +261,7 @@ def delete_api_key(key_id: uuid.UUID, db: Connection = Depends(get_db_connection
     db.commit()
     return
 
-# --- Training Task Endpoint (Placeholder) ---
+# --- Training Task Endpoint ---
 
 class TrainModelRequest(BaseModel):
     asset_id: str
@@ -262,5 +269,8 @@ class TrainModelRequest(BaseModel):
 
 @router.post("/train-model", status_code=status.HTTP_202_ACCEPTED)
 def trigger_model_training(request: TrainModelRequest):
-    print(f"Received training request for asset {request.asset_id} with data from {request.data_url}")
-    return {"message": "Training request received and queued (placeholder).", "asset_id": request.asset_id}
+    print(f"[Admin API] Received training request for asset {request.asset_id} from URL: {request.data_url}")
+    # 将任务发送到Celery队列
+    task = train_model_for_asset.delay(request.asset_id, request.data_url)
+    print(f"[Admin API] Training task {task.id} queued for asset {request.asset_id}.")
+    return {"message": "Training request received and queued.", "task_id": str(task.id), "asset_id": request.asset_id}

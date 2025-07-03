@@ -4,6 +4,7 @@ import os
 import joblib
 from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware # 导入CORS中间件
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -99,11 +100,19 @@ print("Initializing FastAPI app...")
 app = FastAPI(
     title="能耗预测与异常检测API",
     description="一个用于工业能耗预测和异常检测的API服务。",
-    version="2.4.0", # 版本号更新
+    version="2.5.0", # 版本号更新
     lifespan=lifespan
 )
 
-# 挂载admin_api路由
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"], # 允许前端开发服务器的源
+    allow_credentials=True,
+    allow_methods=["*"], # 允许所有HTTP方法
+    allow_headers=["*"], # 允许所有请求头
+)
+
 app.include_router(admin_router)
 
 print("FastAPI app initialized.")
