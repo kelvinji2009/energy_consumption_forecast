@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import os
@@ -16,6 +15,9 @@ sys.path.append(PROJECT_ROOT)
 
 from sqlalchemy import select
 from database.database import engine, models_table # 导入数据库引擎和模型表
+
+# 导入并挂载admin_api路由
+from api_server.admin_api import router as admin_router
 
 # 延迟导入Darts
 # from darts import TimeSeries
@@ -96,9 +98,13 @@ print("Initializing FastAPI app...")
 app = FastAPI(
     title="能耗预测与异常检测API",
     description="一个用于工业能耗预测和异常检测的API服务。",
-    version="2.2.0", # 版本号更新
+    version="2.3.0", # 版本号更新
     lifespan=lifespan
 )
+
+# 挂载admin_api路由
+app.include_router(admin_router)
+
 print("FastAPI app initialized.")
 
 # --- Helper Functions ---
