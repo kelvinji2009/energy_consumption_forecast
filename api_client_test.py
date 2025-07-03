@@ -1,3 +1,4 @@
+
 import requests
 import json
 from datetime import datetime, timedelta
@@ -10,6 +11,14 @@ def run_prediction_test():
     # API的URL
     asset_id = "production_line_A"
     url = f"http://127.0.0.1:8000/assets/{asset_id}/predict"
+
+    # !!! 替换为上面生成的API密钥 !!!
+    API_KEY = "3369df94-7513-459e-be83-104bdb046b85"
+    headers = {
+        "accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}" # 添加认证头
+    }
 
     # 1. 构造一些模拟的历史数据
     # 关键修复：模型需要至少`input_chunk_length` (168) 个历史数据点来构建特征。
@@ -36,7 +45,7 @@ def run_prediction_test():
 
     # 3. 发送POST请求
     try:
-        response = requests.post(url, json=request_payload, timeout=10)
+        response = requests.post(url, headers=headers, json=request_payload, timeout=10)
 
         # 4. 打印响应结果
         print(f"\nResponse Status Code: {response.status_code}")

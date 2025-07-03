@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -14,7 +15,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 
 from sqlalchemy import select
-from database.database import engine, models_table # 导入数据库引擎和模型表
+from database.database import engine, models_table, api_keys_table # 导入数据库引擎和模型表 api_keys_table
 
 # 导入并挂载admin_api路由
 from api_server.admin_api import router as admin_router
@@ -98,7 +99,7 @@ print("Initializing FastAPI app...")
 app = FastAPI(
     title="能耗预测与异常检测API",
     description="一个用于工业能耗预测和异常检测的API服务。",
-    version="2.3.0", # 版本号更新
+    version="2.4.0", # 版本号更新
     lifespan=lifespan
 )
 
@@ -106,6 +107,33 @@ app = FastAPI(
 app.include_router(admin_router)
 
 print("FastAPI app initialized.")
+
+# --- Security Dependency ---
+security = HTTPBearer()
+
+async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """验证API密钥是否有效且活跃。"""
+    api_key = credentials.credentials # 这是从Bearer token中提取的密钥
+    print(f"[Auth] Attempting to verify API Key: {api_key[:8]}...") # 打印部分密钥用于日志
+
+    with engine.connect() as connection:
+        # 在实际应用中，这里会查询密钥的哈希值
+        # 目前我们直接存储明文UUID作为key_hash
+        stmt = select(api_keys_table).where(
+            api_keys_table.c.key_hash == api_key,
+            api_keys_table.c.is_active == True
+        )
+        result = connection.execute(stmt).fetchone()
+        
+        if not result:
+            print("[Auth] API Key verification failed: Invalid or inactive key.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or inactive API Key",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    print("[Auth] API Key verified successfully.")
+    return api_key # 返回密钥，如果需要后续处理
 
 # --- Helper Functions ---
 
@@ -149,7 +177,8 @@ def ping():
 
 @app.post("/assets/{asset_id}/predict", 
           response_model=PredictionResponse,
-          summary="Execute energy consumption forecast")
+          summary="Execute energy consumption forecast",
+          dependencies=[Depends(verify_api_key)]) # 应用API密钥认证
 def predict(asset_id: str, request: PredictionRequest, http_request: Request):
     print(f"\n--- Received prediction request for asset: {asset_id} ---")
     
