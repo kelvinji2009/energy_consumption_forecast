@@ -124,10 +124,6 @@ conda run -n darts pip install pandas numpy "darts[torch]" matplotlib scikit-lea
 
 这种方法是有效的，因为它将“异常”定义为模型在学习了系统的正常模式后无法预测的事件。
 
-## 📄 许可证
-
-本项目根据 LICENSE 文件中的条款进行许可。
-
 ---
 
 ## 🚀 系统运行指南
@@ -189,3 +185,7 @@ conda run -n darts pip install pandas numpy "darts[torch]" matplotlib scikit-lea
     ```bash
     conda run -n darts python api_client_test.py
     ```
+
+## 📄 许可证
+
+本项目根据 LICENSE 文件中的条款进行许可。
