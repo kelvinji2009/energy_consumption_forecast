@@ -7,9 +7,9 @@
 CONDA_BASE=$(conda info --base)
 
 # 激活conda环境
-echo "Activating conda environment: darts_modern"
+echo "Activating conda environment: darts"
 source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate darts_modern
+conda activate darts
 
 # 检查激活是否成功
 if [ $? -ne 0 ]; then
