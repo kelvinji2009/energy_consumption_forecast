@@ -21,7 +21,7 @@ from darts.dataprocessing.transformers import Scaler
 from darts.models import LightGBMModel
 from darts.metrics import mape
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
-from darts.ad.detectors import QuantileDetector # 导入QuantileDetector
+from darts.ad.detectors import QuantileDetector
 
 # --- Configuration for Task ---
 MODELS_SAVE_BASE_DIR = os.path.join(PROJECT_ROOT, "demo", "models")
@@ -142,8 +142,8 @@ def train_model_for_asset(self, asset_id: str, data_url: str):
         detector.fit(train_residuals_ts)
         print(f"[Celery Task {task_id}] Anomaly detector fitted.")
 
-        # --- 7. 保存模型和检测器 ---
-        print(f"[Celery Task {task_id}] Saving model and detector...")
+        # --- 7. 保存模型、检测器和Scaler ---
+        print(f"[Celery Task {task_id}] Saving model, detector, and scaler...")
         model_version = datetime.now().strftime("%Y%m%d%H%M%S") # 基于时间戳的版本号
         model_dir_for_asset = os.path.join(MODELS_SAVE_BASE_DIR, f"lgbm_energy_model_{asset_id}")
         os.makedirs(model_dir_for_asset, exist_ok=True)
@@ -156,12 +156,19 @@ def train_model_for_asset(self, asset_id: str, data_url: str):
         detector_save_path_abs = os.path.join(model_dir_for_asset, detector_filename)
         joblib.dump(detector, detector_save_path_abs)
 
-        # 存储相对于项目根目录的路径
+        # 保存 scaler_energy
+        scaler_filename = f"scaler_{model_version}.joblib"
+        scaler_save_path_abs = os.path.join(model_dir_for_asset, scaler_filename)
+        joblib.dump(scaler_energy, scaler_save_path_abs)
+
+        # 存储相对于项目根目录的路径 (如果需要，可以更新数据库字段来存储这些路径)
         model_relative_path = os.path.relpath(model_save_path_abs, PROJECT_ROOT)
         detector_relative_path = os.path.relpath(detector_save_path_abs, PROJECT_ROOT)
+        scaler_relative_path = os.path.relpath(scaler_save_path_abs, PROJECT_ROOT)
         
         print(f"[Celery Task {task_id}] Model saved to: {model_save_path_abs}")
         print(f"[Celery Task {task_id}] Detector saved to: {detector_save_path_abs}")
+        print(f"[Celery Task {task_id}] Scaler saved to: {scaler_save_path_abs}")
 
         # --- 8. 更新数据库 ---
         print(f"[Celery Task {task_id}] Updating database...")
@@ -183,7 +190,7 @@ def train_model_for_asset(self, asset_id: str, data_url: str):
                 trained_at=datetime.now(),
                 metrics=metrics,
                 model_type="LightGBM",
-                # 可以在这里添加一个字段来存储检测器路径，但目前约定在模型路径下
+                # 可以在这里添加字段来存储检测器和scaler的路径，但目前约定在模型路径下
             )
             connection.execute(stmt_insert_new)
             connection.commit()
