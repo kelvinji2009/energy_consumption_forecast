@@ -21,6 +21,7 @@ from darts.dataprocessing.transformers import Scaler
 from darts.models import LightGBMModel
 from darts.metrics import mape
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
+from darts.ad.detectors import QuantileDetector # 导入QuantileDetector
 
 # --- Configuration for Task ---
 MODELS_SAVE_BASE_DIR = os.path.join(PROJECT_ROOT, "demo", "models")
@@ -93,9 +94,6 @@ def train_model_for_asset(self, asset_id: str, data_url: str):
             lags_future_covariates=[0, output_chunk_length-1],
             output_chunk_length=output_chunk_length,
             random_state=42,
-            # model_name=f"lgbm_energy_model_{asset_id}", # 不再需要，因为我们手动保存
-            # work_dir=MODELS_SAVE_BASE_DIR,
-            # force_reset=True,
         )
 
         model_energy.fit(
@@ -122,20 +120,50 @@ def train_model_for_asset(self, asset_id: str, data_url: str):
         print(f"[Celery Task {task_id}] MAPE on Validation Set: {mape_score:.2f}%")
         metrics = {"mape": round(mape_score, 2)}
 
-        # --- 6. 保存模型 ---
-        print(f"[Celery Task {task_id}] Saving model...")
+        # --- 6. 拟合并保存异常检测器 ---
+        print(f"[Celery Task {task_id}] Fitting and saving anomaly detector...")
+        # 使用训练数据生成历史预测来拟合检测器
+        train_historical_forecasts_scaled = model_energy.historical_forecasts(
+            series=train_energy_scaled,
+            future_covariates=train_future_cov_scaled,
+            start=input_chunk_length, # 从有足够滞后特征的地方开始
+            forecast_horizon=1,
+            stride=1,
+            retrain=False,
+            verbose=False
+        )
+        # 计算残差
+        train_residuals_scaled = train_energy_scaled[train_historical_forecasts_scaled.time_index] - train_historical_forecasts_scaled
+        train_residuals_series = pd.Series(np.abs(train_residuals_scaled.all_values()).reshape(-1), index=train_residuals_scaled.time_index)
+        train_residuals_ts = TimeSeries.from_series(train_residuals_series)
+
+        # 拟合QuantileDetector
+        detector = QuantileDetector(high_quantile=0.98) # 可以将此值配置化
+        detector.fit(train_residuals_ts)
+        print(f"[Celery Task {task_id}] Anomaly detector fitted.")
+
+        # --- 7. 保存模型和检测器 ---
+        print(f"[Celery Task {task_id}] Saving model and detector...")
         model_version = datetime.now().strftime("%Y%m%d%H%M%S") # 基于时间戳的版本号
         model_dir_for_asset = os.path.join(MODELS_SAVE_BASE_DIR, f"lgbm_energy_model_{asset_id}")
         os.makedirs(model_dir_for_asset, exist_ok=True)
+        
         model_filename = f"model_{model_version}.joblib"
         model_save_path_abs = os.path.join(model_dir_for_asset, model_filename)
         joblib.dump(model_energy, model_save_path_abs)
         
+        detector_filename = f"detector_{model_version}.joblib"
+        detector_save_path_abs = os.path.join(model_dir_for_asset, detector_filename)
+        joblib.dump(detector, detector_save_path_abs)
+
         # 存储相对于项目根目录的路径
         model_relative_path = os.path.relpath(model_save_path_abs, PROJECT_ROOT)
+        detector_relative_path = os.path.relpath(detector_save_path_abs, PROJECT_ROOT)
+        
         print(f"[Celery Task {task_id}] Model saved to: {model_save_path_abs}")
+        print(f"[Celery Task {task_id}] Detector saved to: {detector_save_path_abs}")
 
-        # --- 7. 更新数据库 ---
+        # --- 8. 更新数据库 ---
         print(f"[Celery Task {task_id}] Updating database...")
         with engine.connect() as connection:
             # 1. 将该资产下所有旧模型设置为不活跃
@@ -154,13 +182,14 @@ def train_model_for_asset(self, asset_id: str, data_url: str):
                 is_active=True,
                 trained_at=datetime.now(),
                 metrics=metrics,
-                model_type="LightGBM"
+                model_type="LightGBM",
+                # 可以在这里添加一个字段来存储检测器路径，但目前约定在模型路径下
             )
             connection.execute(stmt_insert_new)
             connection.commit()
         print(f"[Celery Task {task_id}] Database updated successfully. New model {model_version} is active.")
 
-        # --- 8. 清理临时文件 ---
+        # --- 9. 清理临时文件 ---
         os.remove(temp_csv_path)
         print(f"[Celery Task {task_id}] Cleaned up temporary file: {temp_csv_path}")
 
