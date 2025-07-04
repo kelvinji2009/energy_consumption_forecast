@@ -127,3 +127,65 @@ conda run -n darts pip install pandas numpy "darts[torch]" matplotlib scikit-lea
 ## 📄 许可证
 
 本项目根据 LICENSE 文件中的条款进行许可。
+
+---
+
+## 🚀 系统运行指南
+
+本项目已扩展为一个完整的能耗预测与异常检测系统，包含API服务、后台管理和异步训练。以下是启动和运行整个系统的步骤：
+
+**前提条件：**
+
+*   已安装 `conda`。
+*   已创建并激活 `darts` conda 环境，并安装了所有项目依赖。
+*   已安装并运行 `PostgreSQL` 数据库。
+*   已安装并运行 `Redis` 服务器（作为 Celery 的消息代理和结果后端）。
+
+**启动步骤：**
+
+1.  **设置数据库环境变量**：
+    在您将要运行后端 API 和 Celery Worker 的终端中，设置 `DATABASE_URL` 环境变量。
+    ```bash
+    export DATABASE_URL="postgresql://kelvinji:mitnick888@localhost:5432/energy_forecast_db"
+    ```
+    请根据您的实际 PostgreSQL 用户名、密码和数据库名进行修改。
+
+2.  **初始化数据库表和数据** (仅首次运行或需要重置时执行)：
+    从项目根目录执行：
+    ```bash
+    conda run -n darts python -m database.database
+    conda run -n darts python -m database.insert_initial_data
+    ```
+    这将创建所需的数据库表并插入一个默认资产和模型记录。
+
+3.  **启动 Celery Worker** (在**一个单独的终端**中，从项目根目录执行)：
+    ```bash
+    conda run -n darts celery -A celery_worker.celery_app worker -l info
+    ```
+    这将启动 Celery 任务处理器，它会监听 Redis 队列并执行模型训练任务。
+
+4.  **启动后端 API 服务** (在**另一个单独的终端**中，从项目根目录执行)：
+    ```bash
+    ./api_server/start_server.sh
+    ```
+    这将启动 FastAPI 后端服务，包括预测 API 和管理 API。
+
+5.  **启动前端开发服务器** (在**第三个单独的终端**中，进入 `admin_frontend` 目录后执行)：
+    ```bash
+    cd admin_frontend
+    npm run dev
+    ```
+    这将启动 React 前端应用。
+
+**访问系统：**
+
+*   **后端 API 文档 (Swagger UI)**：在浏览器中访问 `http://127.0.0.1:8000/docs`
+*   **后台管理系统 (前端 UI)**：在浏览器中访问 `http://localhost:5173/` (如果 `npm run dev` 输出的端口不同，请以实际端口为准)
+
+**测试预测 API (需要 API Key)：**
+
+1.  通过后台管理系统前端 UI (API 密钥页面) 生成一个 API 密钥。
+2.  使用 `api_client_test.py` 脚本进行测试，确保在请求头中包含 `Authorization: Bearer <YOUR_API_KEY>`。
+    ```bash
+    conda run -n darts python api_client_test.py
+    ```
