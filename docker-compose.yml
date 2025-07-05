@@ -100,6 +100,18 @@ services:
       - api
       - db-init # Make frontend wait for db init to complete
 
+  # Development-only service to run npm commands and the Vite dev server
+  frontend-dev:
+    build:
+      context: ./admin_frontend
+      dockerfile: Dockerfile.dev
+    command: npm run dev # Run the development server
+    ports:
+      - "5174:5173" # Expose the dev server on host port 5174
+    volumes:
+      - ./admin_frontend:/app
+      - /app/node_modules
+
 volumes:
   postgres_data:
     driver: local

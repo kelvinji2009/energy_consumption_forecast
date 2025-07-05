@@ -2,13 +2,14 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
-from fastapi import FastAPI, HTTPException, Request, Depends, status
+from fastapi import FastAPI, HTTPException, Request, Depends, status, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
+import io
 
 import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -77,15 +78,24 @@ async def lifespan(app: FastAPI):
                     
                     model_dir, model_filename = os.path.dirname(model_path_abs), os.path.basename(model_path_abs)
                     
-                    detector_path_abs = os.path.join(model_dir, model_filename.replace("model_", "detector_"))
-                    detector_obj = joblib.load(detector_path_abs) if os.path.exists(detector_path_abs) else None
-                    if detector_obj: print(f"[Lifespan] Detector for asset '{asset_id}' loaded successfully.")
+                    # [FIX] Robustly find scaler and detector paths
+                    detector_filename = model_filename.replace("model", "detector", 1)
+                    scaler_filename = model_filename.replace("model", "scaler", 1)
                     
-                    scaler_path_abs = os.path.join(model_dir, model_filename.replace("model_", "scaler_"))
-                    scaler_obj = joblib.load(scaler_path_abs) if os.path.exists(scaler_path_abs) else None
-                    if scaler_obj: print(f"[Lifespan] Scaler for asset '{asset_id}' loaded successfully.")
+                    detector_path_abs = os.path.join(model_dir, detector_filename)
+                    scaler_path_abs = os.path.join(model_dir, scaler_filename)
+                    scaler_cov_path_abs = os.path.join(model_dir, model_filename.replace("model", "scaler_cov", 1))
 
-                    app.state.model_cache[asset_id] = {'model': model_obj, 'detector': detector_obj, 'scaler': scaler_obj}
+                    detector_obj = joblib.load(detector_path_abs) if os.path.exists(detector_path_abs) else None
+                    if detector_obj: print(f"[Lifespan] Detector for asset '{asset_id}' loaded successfully from {detector_path_abs}.")
+                    
+                    scaler_obj = joblib.load(scaler_path_abs) if os.path.exists(scaler_path_abs) else None
+                    if scaler_obj: print(f"[Lifespan] Scaler for asset '{asset_id}' loaded successfully from {scaler_path_abs}.")
+
+                    scaler_cov_obj = joblib.load(scaler_cov_path_abs) if os.path.exists(scaler_cov_path_abs) else None
+                    if scaler_cov_obj: print(f"[Lifespan] Covariate Scaler for asset '{asset_id}' loaded successfully from {scaler_cov_path_abs}.")
+
+                    app.state.model_cache[asset_id] = {'model': model_obj, 'detector': detector_obj, 'scaler': scaler_obj, 'scaler_cov': scaler_cov_obj}
                 except Exception as e:
                     print(f"[Lifespan] ERROR loading artifacts for asset '{asset_id}': {e}")
     except Exception as e:
@@ -95,7 +105,13 @@ async def lifespan(app: FastAPI):
     app.state.model_cache.clear()
 
 app = FastAPI(title="能耗预测与异常检测API", version="7.0.0-final", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174"], # Add the dev server origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(admin_router)
 security = HTTPBearer()
 async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -132,15 +148,22 @@ def predict(asset_id: str, request: PredictionRequest, http_request: Request):
     if not (model_cache_entry and model_cache_entry.get('model')):
         raise HTTPException(status_code=503, detail=f"No active model for asset '{asset_id}'.")
     
-    model, scaler = model_cache_entry['model'], model_cache_entry.get('scaler')
+    model = model_cache_entry['model']
+    scaler = model_cache_entry.get('scaler')
+    scaler_cov = model_cache_entry.get('scaler_cov') # Get the covariate scaler
+
     try:
         series = _create_timeseries_from_request(request.historical_data)
         series_scaled = scaler.transform(series) if scaler else series
         
-        future_covs = _build_future_covariates(series_scaled, request.forecast_horizon, model)
+        # [FIX] Use the covariate scaler to transform the future covariates
+        future_covs_raw = _build_future_covariates(series_scaled, request.forecast_horizon, model)
+        future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
+
         forecast_scaled = model.predict(n=request.forecast_horizon, series=series_scaled, future_covariates=future_covs)
         
         forecast = scaler.inverse_transform(forecast_scaled) if scaler else forecast_scaled
+        
         print("Prediction successful.")
         
         # Bulletproof DataFrame creation
@@ -149,6 +172,8 @@ def predict(asset_id: str, request: PredictionRequest, http_request: Request):
         forecast_data = [ForecastDataPoint(timestamp=ts, predicted_value=row['predicted_value']) for ts, row in forecast_df.iterrows()]
         return PredictionResponse(asset_id=asset_id, forecast_data=forecast_data)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 @app.post("/assets/{asset_id}/detect_anomalies", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
@@ -205,5 +230,70 @@ def detect_anomalies(asset_id: str, request: AnomalyDetectionRequest, http_reque
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
+
+@app.post("/assets/{asset_id}/predict_from_csv", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
+async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...)):
+    print(f"\n--- Received prediction request for asset: {asset_id} from CSV ---")
+    
+    # 1. Get Model from Cache
+    model_cache_entry = http_request.app.state.model_cache.get(asset_id)
+    if not (model_cache_entry and model_cache_entry.get('model')):
+        raise HTTPException(status_code=503, detail=f"No active model for asset '{asset_id}'.")
+    
+    model = model_cache_entry['model']
+    scaler = model_cache_entry.get('scaler')
+    scaler_cov = model_cache_entry.get('scaler_cov')
+
+    # 2. Read and Parse CSV
+    try:
+        contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+        
+        df.rename(columns={'energy_kwh': 'value'}, inplace=True)
+        
+        # Basic validation
+        if 'timestamp' not in df.columns or 'value' not in df.columns:
+            raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
+            
+        # Convert to TimeSeriesDataPoint list
+        historical_data = [
+            TimeSeriesDataPoint(
+                timestamp=row['timestamp'], 
+                value=row['value'],
+                temp=row.get('temp'),
+                production=row.get('production')
+            ) for index, row in df.iterrows()
+        ]
+        
+        # Hardcoded forecast horizon for now, can be a parameter later
+        forecast_horizon = 24 
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing CSV file: {e}")
+
+    # 3. Reuse existing prediction logic
+    try:
+        series = _create_timeseries_from_request(historical_data)
+        series_scaled = scaler.transform(series) if scaler else series
+        
+        future_covs_raw = _build_future_covariates(series_scaled, forecast_horizon, model)
+        future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
+
+        forecast_scaled = model.predict(n=forecast_horizon, series=series_scaled, future_covariates=future_covs)
+        
+        forecast = scaler.inverse_transform(forecast_scaled) if scaler else forecast_scaled
+        
+        print("Prediction from CSV successful.")
+        
+        forecast_df = pd.DataFrame(data=forecast.values(), index=forecast.time_index, columns=['predicted_value'])
+        
+        forecast_data = [ForecastDataPoint(timestamp=ts, predicted_value=row['predicted_value']) for ts, row in forecast_df.iterrows()]
+        
+        return PredictionResponse(asset_id=asset_id, forecast_data=forecast_data)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 print("--- Script main.py finished execution ---")

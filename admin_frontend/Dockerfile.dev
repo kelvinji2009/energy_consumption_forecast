@@ -1,0 +1,19 @@
+# This Dockerfile is specifically for the development environment.
+# It sets up a Node.js environment for running commands like 'npm install' or 'npm run dev'.
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package.json and package-lock.json to leverage Docker cache
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the source code
+COPY . .
+
+# The default command can be to start the dev server,
+# but we will override it in docker-compose to keep the container running.
+CMD ["npm", "run", "dev"]
