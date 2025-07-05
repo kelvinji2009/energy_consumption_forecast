@@ -1,19 +1,45 @@
-import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush } from 'recharts';
-import Papa from 'papaparse'; // Using Papa Parse for robust CSV parsing
+import React, { useState, useEffect, useRef } from 'react';
+import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  TimeScale
+} from 'chart.js';
+import zoomPlugin from 'chartjs-plugin-zoom';
+import 'chartjs-adapter-date-fns';
+import Papa from 'papaparse';
+
+// Register Chart.js components and plugins
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  TimeScale,
+  zoomPlugin
+);
 
 const API_BASE_URL = 'http://localhost:8000';
 
 function ForecastView() {
   const [assets, setAssets] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState('');
-  const [chartData, setChartData] = useState([]);
+  const [chartData, setChartData] = useState({ datasets: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileName, setFileName] = useState('');
+  const chartRef = useRef(null);
 
-  // Fetch assets on component mount
   useEffect(() => {
     const fetchAssets = async () => {
       try {
@@ -43,30 +69,22 @@ function ForecastView() {
   };
 
   const handleForecast = async () => {
-    if (!selectedAsset) {
-      setError('Please select an asset.');
-      return;
-    }
-    if (!selectedFile) {
-      setError('Please select a CSV file to upload.');
+    if (!selectedAsset || !selectedFile) {
+      setError('Please select an asset and a CSV file.');
       return;
     }
 
     setLoading(true);
     setError(null);
-    setChartData([]);
 
     try {
-      const tempApiKey = "3369df94-7513-459e-be83-104bdb046b85"; // Replace with a valid key if needed
-      
+      const tempApiKey = "3369df94-7513-459e-be83-104bdb046b85";
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const response = await fetch(`${API_BASE_URL}/assets/${selectedAsset}/predict_from_csv` , {
+      const response = await fetch(`${API_BASE_URL}/assets/${selectedAsset}/predict_from_csv`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${tempApiKey}`,
-        },
+        headers: { 'Authorization': `Bearer ${tempApiKey}` },
         body: formData,
       });
 
@@ -77,33 +95,36 @@ function ForecastView() {
 
       const result = await response.json();
 
-      // Parse the uploaded CSV to get historical data for the chart
       Papa.parse(selectedFile, {
         header: true,
         dynamicTyping: true,
         complete: (parsedResult) => {
-            const historicalData = parsedResult.data;
-            
-            const historicalChartData = historicalData
-                .filter(d => d.timestamp && (d.value != null || d.energy_kwh != null))
-                .map(d => ({
-                    timestamp: d.timestamp,
-                    'Historical Energy': d.value != null ? d.value : d.energy_kwh,
-                }));
+          const historicalData = parsedResult.data
+            .filter(d => d.timestamp && (d.value != null || d.energy_kwh != null))
+            .map(d => ({ x: d.timestamp, y: d.value != null ? d.value : d.energy_kwh }));
 
-            const forecastChartData = result.forecast_data.map(d => ({
-                timestamp: d.timestamp,
-                'Forecasted Energy': d.predicted_value,
-            }));
+          const forecastData = result.forecast_data.map(d => ({ x: d.timestamp, y: d.predicted_value }));
 
-            const allData = [...historicalChartData, ...forecastChartData]
-                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-            setChartData(allData);
+          setChartData({
+            datasets: [
+              {
+                label: 'Historical Energy',
+                data: historicalData,
+                borderColor: '#8884d8',
+                backgroundColor: '#8884d8',
+                pointRadius: 0, // Hide points for performance
+              },
+              {
+                label: 'Forecasted Energy',
+                data: forecastData,
+                borderColor: '#82ca9d',
+                backgroundColor: '#82ca9d',
+                pointRadius: 0, // Hide points for performance
+              }
+            ]
+          });
         },
-        error: (err) => {
-            setError(`CSV Parsing Error: ${err.message}`);
-        }
+        error: (err) => setError(`CSV Parsing Error: ${err.message}`),
       });
 
     } catch (err) {
@@ -112,20 +133,63 @@ function ForecastView() {
       setLoading(false);
     }
   };
-
-  const formatXAxis = (tickItem) => {
-    return new Date(tickItem).toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit' });
+  
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          unit: 'day',
+          tooltipFormat: 'MMM dd, yyyy HH:mm',
+        },
+        title: {
+          display: true,
+          text: 'Timestamp'
+        }
+      },
+      y: {
+        title: {
+          display: true,
+          text: 'Energy (kWh)'
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'top',
+      },
+      title: {
+        display: true,
+        text: 'Energy Consumption Forecast'
+      },
+      zoom: {
+        pan: {
+          enabled: true,
+          mode: 'x',
+        },
+        zoom: {
+          wheel: {
+            enabled: true,
+          },
+          pinch: {
+            enabled: true
+          },
+          mode: 'x',
+        }
+      }
+    },
+    animation: false, // Disable animation for performance
   };
 
   return (
     <div className="card">
       <h2>Energy Consumption Forecast</h2>
-      <div className="controls" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div className="controls" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
         <select value={selectedAsset} onChange={e => setSelectedAsset(e.target.value)} disabled={loading}>
           <option value="">Select an Asset</option>
-          {assets.map(asset => (
-            <option key={asset.id} value={asset.id}>{asset.name}</option>
-          ))}
+          {assets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
         </select>
         
         <input 
@@ -133,7 +197,7 @@ function ForecastView() {
           id="csv-upload" 
           accept=".csv"
           onChange={handleFileChange} 
-          style={{ display: 'none' }} // Hide the default input
+          style={{ display: 'none' }}
           disabled={loading}
         />
         <label htmlFor="csv-upload" className="button" style={{ cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>
@@ -143,34 +207,15 @@ function ForecastView() {
         <button onClick={handleForecast} disabled={loading || !selectedFile}>
           {loading ? 'Generating...' : 'Start Forecast'}
         </button>
+        <button onClick={() => chartRef.current?.resetZoom()} disabled={loading}>
+          Reset Zoom
+        </button>
       </div>
 
       {error && <p className="error">Error: {error}</p>}
 
-      <div style={{ width: '100%', height: 400, marginTop: '20px' }}>
-        <ResponsiveContainer>
-          <LineChart
-            data={chartData}
-            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis 
-              dataKey="timestamp" 
-              angle={-30} 
-              textAnchor="end" 
-              height={70}
-              tickFormatter={formatXAxis}
-            />
-            <YAxis />
-            <Tooltip 
-              labelFormatter={(label) => new Date(label).toLocaleString()}
-            />
-            <Legend />
-            <Line type="monotone" dataKey="Historical Energy" stroke="#8884d8" dot={false} />
-            <Line type="monotone" dataKey="Forecasted Energy" stroke="#82ca9d" strokeDasharray="5 5" />
-            <Brush dataKey='timestamp' height={30} stroke="#8884d8"/>
-          </LineChart>
-        </ResponsiveContainer>
+      <div style={{ position: 'relative', width: '100%', height: '400px', marginTop: '20px' }}>
+        <Line ref={chartRef} options={chartOptions} data={chartData} />
       </div>
     </div>
   );
