@@ -3,6 +3,10 @@ from sqlalchemy import create_engine, MetaData, Table, Column, String, Boolean, 
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from datetime import datetime
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Configuration ---
 # 数据库连接字符串。在生产环境中，这应该通过环境变量配置。

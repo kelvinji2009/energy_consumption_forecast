@@ -144,6 +144,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Rule for temp data files
+data/temp_*.csv
+
 # Spyder project settings
 .spyderproject
 .spyproject

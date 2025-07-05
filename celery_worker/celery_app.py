@@ -1,5 +1,9 @@
 from celery import Celery
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Redis broker URL. In production, this should be an environment variable.
 # For local development, we assume Redis is running on default port.
