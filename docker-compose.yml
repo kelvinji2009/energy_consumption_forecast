@@ -67,7 +67,7 @@ services:
   frontend:
     build:
       context: ./admin_frontend
-      dockerfile: admin_frontend/Dockerfile
+      dockerfile: Dockerfile
     ports:
       - "5173:80"
     depends_on:
