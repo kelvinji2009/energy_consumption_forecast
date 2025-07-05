@@ -134,6 +134,11 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Docker / Containerization
+.dockerignore
+docker-compose.yml.override
+postgres_data/
+
 # Environments
 .env
 .envrc
