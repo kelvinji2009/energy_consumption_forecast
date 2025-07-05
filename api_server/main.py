@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
-from fastapi import FastAPI, HTTPException, Request, Depends, status, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, Depends, status, UploadFile, File, Form
+
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -232,8 +233,8 @@ def detect_anomalies(asset_id: str, request: AnomalyDetectionRequest, http_reque
         raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
 
 @app.post("/assets/{asset_id}/predict_from_csv", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
-async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...)):
-    print(f"\n--- Received prediction request for asset: {asset_id} from CSV ---")
+async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), forecast_horizon: int = Form(168)):
+    print(f"\n--- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} ---")
     
     # 1. Get Model from Cache
     model_cache_entry = http_request.app.state.model_cache.get(asset_id)
@@ -254,6 +255,15 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
         # Basic validation
         if 'timestamp' not in df.columns or 'value' not in df.columns:
             raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
+
+        # --- Horizon Validation ---
+        historical_hours = len(df)
+        max_horizon = historical_hours // 4
+        if forecast_horizon > max_horizon:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Forecast horizon ({forecast_horizon} hours) is too large for the provided historical data ({historical_hours} hours). Maximum allowed horizon is {max_horizon} hours."
+            )
             
         # Convert to TimeSeriesDataPoint list
         historical_data = [
@@ -264,11 +274,11 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
                 production=row.get('production')
             ) for index, row in df.iterrows()
         ]
-        
-        # Hardcoded forecast horizon for now, can be a parameter later
-        forecast_horizon = 24 
 
     except Exception as e:
+        # Catch the specific HTTPException and re-raise it
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=400, detail=f"Error processing CSV file: {e}")
 
     # 3. Reuse existing prediction logic

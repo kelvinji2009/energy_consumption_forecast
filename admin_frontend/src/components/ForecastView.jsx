@@ -38,6 +38,8 @@ function ForecastView() {
   const [error, setError] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileName, setFileName] = useState('');
+  const [forecastHorizon, setForecastHorizon] = useState(168);
+  const [maxForecastHorizon, setMaxForecastHorizon] = useState(null);
   const chartRef = useRef(null);
 
   useEffect(() => {
@@ -61,9 +63,30 @@ function ForecastView() {
       setSelectedFile(file);
       setFileName(file.name);
       setError(null);
+
+      // --- Instant Feedback Logic ---
+      Papa.parse(file, {
+        header: true,
+        // We only need to count the rows, so a step function is efficient
+        step: (results, parser) => {
+          // This function is called for each row. We don't need to do anything here.
+        },
+        complete: (results) => {
+          const historical_hours = results.data.length;
+          const max_horizon = Math.floor(historical_hours / 4);
+          setMaxForecastHorizon(max_horizon);
+
+          // Adjust current forecast horizon if it exceeds the new max
+          if (forecastHorizon > max_horizon) {
+            setForecastHorizon(max_horizon);
+          }
+        }
+      });
+
     } else {
       setSelectedFile(null);
       setFileName('');
+      setMaxForecastHorizon(null);
       setError('Please select a valid .csv file.');
     }
   };
@@ -81,6 +104,7 @@ function ForecastView() {
       const tempApiKey = "3369df94-7513-459e-be83-104bdb046b85";
       const formData = new FormData();
       formData.append('file', selectedFile);
+      formData.append('forecast_horizon', forecastHorizon);
 
       const response = await fetch(`${API_BASE_URL}/assets/${selectedAsset}/predict_from_csv`, {
         method: 'POST',
@@ -112,14 +136,14 @@ function ForecastView() {
                 data: historicalData,
                 borderColor: '#8884d8',
                 backgroundColor: '#8884d8',
-                pointRadius: 0, // Hide points for performance
+                pointRadius: 0,
               },
               {
                 label: 'Forecasted Energy',
                 data: forecastData,
                 borderColor: '#82ca9d',
                 backgroundColor: '#82ca9d',
-                pointRadius: 0, // Hide points for performance
+                pointRadius: 0,
               }
             ]
           });
@@ -180,7 +204,7 @@ function ForecastView() {
         }
       }
     },
-    animation: false, // Disable animation for performance
+    animation: false,
   };
 
   return (
@@ -203,6 +227,19 @@ function ForecastView() {
         <label htmlFor="csv-upload" className="button" style={{ cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>
           {fileName || 'Select CSV File'}
         </label>
+
+        <div>
+          <input
+            type="number"
+            value={forecastHorizon}
+            onChange={(e) => setForecastHorizon(parseInt(e.target.value, 10))}
+            placeholder="Forecast Hours"
+            disabled={loading || !selectedFile}
+            max={maxForecastHorizon}
+            style={{ width: '120px' }}
+          />
+          {maxForecastHorizon && <small style={{ display: 'block', marginTop: '5px' }}>Max: {maxForecastHorizon} hours</small>}
+        </div>
 
         <button onClick={handleForecast} disabled={loading || !selectedFile}>
           {loading ? 'Generating...' : 'Start Forecast'}
