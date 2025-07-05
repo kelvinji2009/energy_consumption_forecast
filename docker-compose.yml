@@ -63,6 +63,32 @@ services:
       db:
         condition: service_healthy
 
+  # One-off service to initialize the database
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      bash -c "
+        echo 'Waiting for database to be ready...' &&
+        # A simple check to see if tables exist. If not, run init scripts.
+        # This is a simple way to prevent re-running on every start.
+        if ! psql $DATABASE_URL -c '\\dt' | grep -q 'assets'; then
+          echo 'Database not initialized. Running setup scripts...' &&
+          python -m database.database &&
+          python -m database.insert_initial_data &&
+          echo 'Database initialized successfully.'
+        else
+          echo 'Database already initialized.'
+        fi
+      "
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - PGPASSWORD=${POSTGRES_PASSWORD:-password} # psql command needs this
+    depends_on:
+      db:
+        condition: service_healthy
+
   # Frontend Service (React + Nginx)
   frontend:
     build:
@@ -72,6 +98,7 @@ services:
       - "5173:80"
     depends_on:
       - api
+      - db-init # Make frontend wait for db init to complete
 
 volumes:
   postgres_data:
