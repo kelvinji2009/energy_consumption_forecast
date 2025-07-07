@@ -47,18 +47,6 @@ def insert_initial_data():
         else:
             print(f"Model {DEFAULT_MODEL_VERSION} for asset {DEFAULT_ASSET_ID} already exists.")
 
-        # 3. 检查并插入默认API密钥
-        stmt_check_key = select(api_keys_table).where(api_keys_table.c.key_hash == DEFAULT_API_KEY)
-        if not connection.execute(stmt_check_key).fetchone():
-            stmt_insert_key = insert(api_keys_table).values(
-                id=uuid.uuid4(), key_hash=DEFAULT_API_KEY,
-                description="Default key for frontend development", is_active=True
-            )
-            connection.execute(stmt_insert_key)
-            print(f"Inserted default API key for frontend.")
-        else:
-            print("Default API key already exists.")
-
         connection.commit()
         print("--- Initial data insertion complete ---")
 
