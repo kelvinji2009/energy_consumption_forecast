@@ -12,7 +12,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 
 from celery_worker.celery_app import celery_app
-from database.database import engine, models_table
+from database.database import engine, Model
 from sqlalchemy import insert, select, update
 
 # 导入Darts相关的库
@@ -174,23 +174,23 @@ def train_model_for_asset(self, asset_id: str, data_url: str):
         print(f"[Celery Task {task_id}] Updating database...")
         with engine.connect() as connection:
             # 1. 将该资产下所有旧模型设置为不活跃
-            stmt_deactivate_old = update(models_table).where(
-                models_table.c.asset_id == asset_id,
-                models_table.c.is_active == True
+            stmt_deactivate_old = update(Model).where(
+                Model.asset_id == asset_id,
+                Model.is_active == True
             ).values(is_active=False)
             connection.execute(stmt_deactivate_old)
 
             # 2. 插入新模型记录并设置为活跃
-            stmt_insert_new = insert(models_table).values(
-                id=uuid.uuid4(),
+            stmt_insert_new = insert(Model).values(
                 asset_id=asset_id,
-                version=model_version,
-                path=model_relative_path,
-                is_active=True,
-                trained_at=datetime.now(),
-                metrics=metrics,
                 model_type="LightGBM",
-                # 可以在这里添加字段来存储检测器和scaler的路径，但目前约定在模型路径下
+                model_version=model_version,
+                model_path=model_relative_path,
+                scaler_path=scaler_relative_path,
+                scaler_cov_path=None, # LightGBM does not use scaler_cov_path in this example
+                is_active=True,
+                description=f"LightGBM model trained on {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                metrics=metrics,
             )
             connection.execute(stmt_insert_new)
             connection.commit()

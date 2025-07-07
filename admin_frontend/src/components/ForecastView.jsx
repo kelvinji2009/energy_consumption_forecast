@@ -33,6 +33,9 @@ const API_BASE_URL = 'http://localhost:8000';
 function ForecastView() {
   const [assets, setAssets] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState('');
+  const [models, setModels] = useState([]);
+  const [selectedModelType, setSelectedModelType] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState('');
   const [chartData, setChartData] = useState({ datasets: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -42,6 +45,7 @@ function ForecastView() {
   const [maxForecastHorizon, setMaxForecastHorizon] = useState(null);
   const chartRef = useRef(null);
 
+  // Fetch assets on component mount
   useEffect(() => {
     const fetchAssets = async () => {
       try {
@@ -57,6 +61,39 @@ function ForecastView() {
     fetchAssets();
   }, []);
 
+  // Fetch models when selectedAsset changes
+  useEffect(() => {
+    const fetchModels = async () => {
+      if (!selectedAsset) {
+        setModels([]);
+        setSelectedModelType('');
+        setSelectedModelId('');
+        return;
+      }
+      try {
+        const tempApiKey = "3369df94-7513-459e-be83-104bdb046b85";
+        const response = await fetch(`${API_BASE_URL}/admin/assets/${selectedAsset}/models`, {
+          headers: { 'Authorization': `Bearer ${tempApiKey}` },
+        });
+        if (!response.ok) throw new Error('Failed to fetch models');
+        const data = await response.json();
+        setModels(data);
+        // Set default selected model type and ID if models are available
+        if (data.length > 0) {
+          const firstModelType = data[0].model_type;
+          setSelectedModelType(firstModelType);
+          const defaultModel = data.find(m => m.model_type === firstModelType);
+          if (defaultModel) {
+            setSelectedModelId(defaultModel.id);
+          }
+        }
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+    fetchModels();
+  }, [selectedAsset]);
+
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file && file.type === "text/csv") {
@@ -64,23 +101,18 @@ function ForecastView() {
       setFileName(file.name);
       setError(null);
 
-      // --- Instant Feedback Logic ---
       Papa.parse(file, {
         header: true,
-        // We only need to count the rows, so a step function is efficient
-        step: (results, parser) => {
-          // This function is called for each row. We don't need to do anything here.
-        },
+        step: (results, parser) => {},
         complete: (results) => {
           const historical_hours = results.data.length;
           const max_horizon = Math.floor(historical_hours / 4);
           setMaxForecastHorizon(max_horizon);
 
-          // Adjust current forecast horizon if it exceeds the new max
           if (forecastHorizon > max_horizon) {
             setForecastHorizon(max_horizon);
           }
-        }
+        },
       });
 
     } else {
@@ -92,8 +124,8 @@ function ForecastView() {
   };
 
   const handleForecast = async () => {
-    if (!selectedAsset || !selectedFile) {
-      setError('Please select an asset and a CSV file.');
+    if (!selectedAsset || !selectedFile || !selectedModelId) {
+      setError('Please select an asset, a CSV file, and a model.');
       return;
     }
 
@@ -105,6 +137,7 @@ function ForecastView() {
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('forecast_horizon', forecastHorizon);
+      formData.append('model_id', selectedModelId);
 
       const response = await fetch(`${API_BASE_URL}/assets/${selectedAsset}/predict_from_csv`, {
         method: 'POST',
@@ -207,6 +240,9 @@ function ForecastView() {
     animation: false,
   };
 
+  const availableModelTypes = [...new Set(models.map(m => m.model_type))];
+  const availableModelVersions = models.filter(m => m.model_type === selectedModelType);
+
   return (
     <div className="card">
       <h2>Energy Consumption Forecast</h2>
@@ -216,6 +252,16 @@ function ForecastView() {
           {assets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
         </select>
         
+        <select value={selectedModelType} onChange={e => setSelectedModelType(e.target.value)} disabled={loading || models.length === 0}>
+          <option value="">Select Model Type</option>
+          {availableModelTypes.map(type => <option key={type} value={type}>{type}</option>)}
+        </select>
+
+        <select value={selectedModelId} onChange={e => setSelectedModelId(parseInt(e.target.value))} disabled={loading || availableModelVersions.length === 0}>
+          <option value="">Select Model Version</option>
+          {availableModelVersions.map(model => <option key={model.id} value={model.id}>{model.model_version} ({model.description || 'No description'})</option>)}
+        </select>
+
         <input 
           type="file" 
           id="csv-upload" 
@@ -241,7 +287,7 @@ function ForecastView() {
           {maxForecastHorizon && <small style={{ display: 'block', marginTop: '5px' }}>Max: {maxForecastHorizon} hours</small>}
         </div>
 
-        <button onClick={handleForecast} disabled={loading || !selectedFile}>
+        <button onClick={handleForecast} disabled={loading || !selectedFile || !selectedModelId}>
           {loading ? 'Generating...' : 'Start Forecast'}
         </button>
         <button onClick={() => chartRef.current?.resetZoom()} disabled={loading}>

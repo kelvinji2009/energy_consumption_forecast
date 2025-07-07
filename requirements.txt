@@ -9,6 +9,7 @@ requests==2.32.3
 sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
+alembic==1.13.1
 
 # --- Machine Learning & Data Processing ---
 # Note: u8darts is a community fork of Darts with more frequent updates.

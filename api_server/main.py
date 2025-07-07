@@ -17,7 +17,8 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 
 from sqlalchemy import select
-from database.database import engine, models_table, api_keys_table
+from sqlalchemy.orm import Session # Import Session
+from database.database import engine, Model, ApiKey, Asset # Import Model, ApiKey, Asset
 from api_server.admin_api import router as admin_router
 
 # Import Darts, this works for both 'darts' and 'u8darts'
@@ -30,77 +31,48 @@ from darts.ad.detectors import QuantileDetector
 print("--- Script main.py starting to execute (Ultimate Compatibility Version) ---")
 
 # --- Pydantic Models ---
-# ... (Keep all your Pydantic models as they were) ...
 class TimeSeriesDataPoint(BaseModel):
     timestamp: datetime
     value: float
     temp: Optional[float] = None
     production: Optional[float] = None
+
 class PredictionRequest(BaseModel):
     historical_data: List[TimeSeriesDataPoint]
     forecast_horizon: int = Field(..., gt=0, description="Forecast horizon must be greater than 0")
+
 class ForecastDataPoint(BaseModel):
     timestamp: datetime
     predicted_value: float
+
 class PredictionResponse(BaseModel):
     asset_id: str
     forecast_data: List[ForecastDataPoint]
+
 class AnomalyDetectionRequest(BaseModel):
     data_stream: List[TimeSeriesDataPoint]
+
 class AnomalyDataPoint(BaseModel):
     timestamp: datetime
     value: float
     reason: str
+
 class AnomalyDetectionResponse(BaseModel):
     asset_id: str
     anomalies: List[AnomalyDataPoint]
 
+class ModelInfo(BaseModel):
+    id: int
+    model_type: str
+    model_version: str
+    description: Optional[str] = None
+
 
 # --- Lifespan, App, Security setup ---
 # ... (Keep these sections as they were, they are correct) ...
-@asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[Lifespan] Startup event triggered.")
     app.state.model_cache = {}
-    try:
-        print("[Lifespan] Attempting to connect to database and load active models...")
-        with engine.connect() as connection:
-            stmt = select(models_table).where(models_table.c.is_active == True)
-            result = connection.execute(stmt).fetchall()
-            if not result:
-                print("[Lifespan] No active models found in the database.")
-            for row in result:
-                asset_id, model_relative_path, model_type = row.asset_id, row.path, row.model_type
-                model_path_abs = os.path.join(PROJECT_ROOT, model_relative_path)
-                try:
-                    print(f"[Lifespan] Loading {model_type} model for asset '{asset_id}' from: {model_path_abs}")
-                    model_obj = joblib.load(model_path_abs)
-                    print(f"[Lifespan] Model for asset '{asset_id}' loaded successfully.")
-                    
-                    model_dir, model_filename = os.path.dirname(model_path_abs), os.path.basename(model_path_abs)
-                    
-                    # [FIX] Robustly find scaler and detector paths
-                    detector_filename = model_filename.replace("model", "detector", 1)
-                    scaler_filename = model_filename.replace("model", "scaler", 1)
-                    
-                    detector_path_abs = os.path.join(model_dir, detector_filename)
-                    scaler_path_abs = os.path.join(model_dir, scaler_filename)
-                    scaler_cov_path_abs = os.path.join(model_dir, model_filename.replace("model", "scaler_cov", 1))
-
-                    detector_obj = joblib.load(detector_path_abs) if os.path.exists(detector_path_abs) else None
-                    if detector_obj: print(f"[Lifespan] Detector for asset '{asset_id}' loaded successfully from {detector_path_abs}.")
-                    
-                    scaler_obj = joblib.load(scaler_path_abs) if os.path.exists(scaler_path_abs) else None
-                    if scaler_obj: print(f"[Lifespan] Scaler for asset '{asset_id}' loaded successfully from {scaler_path_abs}.")
-
-                    scaler_cov_obj = joblib.load(scaler_cov_path_abs) if os.path.exists(scaler_cov_path_abs) else None
-                    if scaler_cov_obj: print(f"[Lifespan] Covariate Scaler for asset '{asset_id}' loaded successfully from {scaler_cov_path_abs}.")
-
-                    app.state.model_cache[asset_id] = {'model': model_obj, 'detector': detector_obj, 'scaler': scaler_obj, 'scaler_cov': scaler_cov_obj}
-                except Exception as e:
-                    print(f"[Lifespan] ERROR loading artifacts for asset '{asset_id}': {e}")
-    except Exception as e:
-        print(f"[Lifespan] CRITICAL: Database connection or initial model loading failed. Error: {e}")
     yield
     print("[Lifespan] Shutdown event triggered.")
     app.state.model_cache.clear()
@@ -115,12 +87,17 @@ app.add_middleware(
 )
 app.include_router(admin_router)
 security = HTTPBearer()
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+
+# Dependency to get DB session
+def get_db():
+    with Session(engine) as session:
+        yield session
+
+async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     api_key = credentials.credentials
-    with engine.connect() as connection:
-        stmt = select(api_keys_table).where(api_keys_table.c.key_hash == api_key, api_keys_table.c.is_active == True)
-        if not connection.execute(stmt).fetchone():
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or inactive API Key")
+    stmt = select(ApiKey).where(ApiKey.key_hash == api_key, ApiKey.is_active == True)
+    if not db.execute(stmt).scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or inactive API Key")
     return api_key
 
 # --- Helper Functions ---
@@ -139,6 +116,20 @@ def _build_future_covariates(series: TimeSeries, horizon: int, model) -> TimeSer
 
 @app.get("/ping", summary="Check service status")
 def ping(): return {"status": "ok"}
+
+@app.get("/admin/assets/{asset_id}/models", response_model=List[ModelInfo], dependencies=[Depends(verify_api_key)])
+async def get_asset_models(asset_id: str, db: Session = Depends(get_db)):
+    """获取指定资产的所有可用模型信息。"""
+    stmt = select(Model).where(Model.asset_id == asset_id).order_by(Model.model_type, Model.model_version.desc())
+    models = db.execute(stmt).scalars().all()
+    return [
+        ModelInfo(
+            id=m.id,
+            model_type=m.model_type,
+            model_version=m.model_version,
+            description=m.description
+        ) for m in models
+    ]
 
 # --- API Endpoints with Bulletproof Code ---
 
@@ -233,17 +224,37 @@ def detect_anomalies(asset_id: str, request: AnomalyDetectionRequest, http_reque
         raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
 
 @app.post("/assets/{asset_id}/predict_from_csv", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
-async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), forecast_horizon: int = Form(168)):
-    print(f"\n--- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} ---")
+async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), forecast_horizon: int = Form(168), model_id: int = Form(...), db: Session = Depends(get_db)):
+    print(f"\n--- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} using model ID: {model_id} ---")
     
-    # 1. Get Model from Cache
-    model_cache_entry = http_request.app.state.model_cache.get(asset_id)
-    if not (model_cache_entry and model_cache_entry.get('model')):
-        raise HTTPException(status_code=503, detail=f"No active model for asset '{asset_id}'.")
+    # 1. Load Model from Cache or Database
+    model_cache = http_request.app.state.model_cache
+    model_key = f"model_{model_id}"
+
+    if model_key not in model_cache:
+        # Fetch model paths from DB
+        model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
+        if not model_record:
+            raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
+
+        try:
+            model_obj = joblib.load(os.path.join(PROJECT_ROOT, model_record.model_path))
+            scaler_obj = joblib.load(os.path.join(PROJECT_ROOT, model_record.scaler_path)) if model_record.scaler_path else None
+            scaler_cov_obj = joblib.load(os.path.join(PROJECT_ROOT, model_record.scaler_cov_path)) if model_record.scaler_cov_path else None
+            
+            model_cache[model_key] = {
+                'model': model_obj,
+                'scaler': scaler_obj,
+                'scaler_cov': scaler_cov_obj
+            }
+            print(f"[Cache] Model ID {model_id} loaded into cache.")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load model artifacts for ID {model_id}: {e}")
     
-    model = model_cache_entry['model']
-    scaler = model_cache_entry.get('scaler')
-    scaler_cov = model_cache_entry.get('scaler_cov')
+    model_artifacts = model_cache[model_key]
+    model = model_artifacts['model']
+    scaler = model_artifacts.get('scaler')
+    scaler_cov = model_artifacts.get('scaler_cov')
 
     # 2. Read and Parse CSV
     try:

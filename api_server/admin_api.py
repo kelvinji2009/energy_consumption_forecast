@@ -5,14 +5,15 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
-from sqlalchemy import insert, select, update, delete, Connection
+from sqlalchemy import insert, select, update, delete
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session # Import Session
 
 # 导入数据库组件
 import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
-from database.database import engine, assets_table, models_table, api_keys_table
+from database.database import engine, Asset, Model, ApiKey # Import ORM models
 
 # 导入Celery任务
 from celery_worker.tasks import train_model_for_asset
@@ -37,18 +38,21 @@ class AssetResponse(AssetCreate):
 # Models
 class ModelBase(BaseModel):
     asset_id: str
-    version: str = Field(..., max_length=50)
-    path: str = Field(..., description="模型文件在文件系统中的相对路径")
     model_type: str = Field(..., max_length=50)
+    model_version: str = Field(..., max_length=50)
+    model_path: str = Field(..., description="模型文件在文件系统中的相对路径")
+    scaler_path: Optional[str] = Field(None, description="值缩放器文件的路径")
+    scaler_cov_path: Optional[str] = Field(None, description="协变量缩放器文件的路径")
+    description: Optional[str] = None
     metrics: Optional[dict] = None
 
 class ModelCreate(ModelBase):
     pass
 
 class ModelResponse(ModelBase):
-    id: uuid.UUID
+    id: int # Changed from UUID to int
     is_active: bool
-    trained_at: datetime
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -78,150 +82,146 @@ class ApiKeyCreateResponse(ApiKeyResponse):
 router = APIRouter(prefix="/admin", tags=["Admin Operations"])
 
 # --- Dependency for Database Session ---
-def get_db_connection():
-    with engine.connect() as connection:
-        yield connection
+def get_db_session(): # Renamed to avoid conflict and clarify it returns a Session
+    with Session(engine) as session:
+        yield session
 
 # --- Asset Endpoints ---
 
 @router.post("/assets", response_model=AssetResponse, status_code=status.HTTP_201_CREATED)
-def create_asset(asset: AssetCreate, db: Connection = Depends(get_db_connection)):
+def create_asset(asset: AssetCreate, db: Session = Depends(get_db_session)):
     try:
-        stmt = insert(assets_table).values(**asset.model_dump())
-        result = db.execute(stmt)
+        new_asset = Asset(**asset.model_dump())
+        db.add(new_asset)
         db.commit()
-        new_asset = db.execute(select(assets_table).where(assets_table.c.id == asset.id)).fetchone()
-        return AssetResponse.model_validate(new_asset)
+        db.refresh(new_asset)
+        return new_asset
     except IntegrityError:
         raise HTTPException(status_code=400, detail="Asset with this ID already exists.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create asset: {e}")
 
 @router.get("/assets", response_model=List[AssetResponse])
-def read_assets(db: Connection = Depends(get_db_connection)):
-    stmt = select(assets_table)
-    assets = db.execute(stmt).fetchall()
-    return [AssetResponse.model_validate(asset) for asset in assets]
+def read_assets(db: Session = Depends(get_db_session)):
+    assets = db.query(Asset).all()
+    return assets
 
 @router.get("/assets/{asset_id}", response_model=AssetResponse)
-def read_asset(asset_id: str, db: Connection = Depends(get_db_connection)):
-    stmt = select(assets_table).where(assets_table.c.id == asset_id)
-    asset = db.execute(stmt).fetchone()
+def read_asset(asset_id: str, db: Session = Depends(get_db_session)):
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found.")
-    return AssetResponse.model_validate(asset)
+    return asset
 
 @router.put("/assets/{asset_id}", response_model=AssetResponse)
-def update_asset(asset_id: str, asset_update: AssetBase, db: Connection = Depends(get_db_connection)):
-    stmt = update(assets_table).where(assets_table.c.id == asset_id).values(**asset_update.model_dump(exclude_unset=True))
-    result = db.execute(stmt)
-    if result.rowcount == 0:
+def update_asset(asset_id: str, asset_update: AssetBase, db: Session = Depends(get_db_session)):
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found.")
+    
+    for key, value in asset_update.model_dump(exclude_unset=True).items():
+        setattr(asset, key, value)
     db.commit()
-    updated_asset = db.execute(select(assets_table).where(assets_table.c.id == asset_id)).fetchone()
-    return AssetResponse.model_validate(updated_asset)
+    db.refresh(asset)
+    return asset
 
 @router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_asset(asset_id: str, db: Connection = Depends(get_db_connection)):
-    stmt = delete(assets_table).where(assets_table.c.id == asset_id)
-    result = db.execute(stmt)
-    if result.rowcount == 0:
+def delete_asset(asset_id: str, db: Session = Depends(get_db_session)):
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found.")
+    db.delete(asset)
     db.commit()
     return
 
 # --- Model Endpoints ---
 
 @router.post("/models", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
-def create_model(model: ModelCreate, db: Connection = Depends(get_db_connection)):
+def create_model(model: ModelCreate, db: Session = Depends(get_db_session)):
     try:
-        stmt = insert(models_table).values(**model.model_dump(), is_active=False)
-        result = db.execute(stmt)
+        new_model = Model(**model.model_dump())
+        db.add(new_model)
         db.commit()
-        new_model = db.execute(select(models_table).where(models_table.c.id == result.inserted_primary_key[0])).fetchone()
-        return ModelResponse.model_validate(new_model)
+        db.refresh(new_model)
+        return new_model
     except IntegrityError:
         raise HTTPException(status_code=400, detail="Model with this version already exists for the asset.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create model: {e}")
 
 @router.get("/models", response_model=List[ModelResponse])
-def read_models(db: Connection = Depends(get_db_connection), asset_id: Optional[str] = None):
-    stmt = select(models_table)
+def read_models(db: Session = Depends(get_db_session), asset_id: Optional[str] = None):
+    query = db.query(Model)
     if asset_id:
-        stmt = stmt.where(models_table.c.asset_id == asset_id)
-    models = db.execute(stmt).fetchall()
-    return [ModelResponse.model_validate(model) for model in models]
+        query = query.filter(Model.asset_id == asset_id)
+    models = query.all()
+    return models
 
 @router.get("/models/{model_id}", response_model=ModelResponse)
-def read_model(model_id: uuid.UUID, db: Connection = Depends(get_db_connection)):
-    stmt = select(models_table).where(models_table.c.id == model_id)
-    model = db.execute(stmt).fetchone()
+def read_model(model_id: int, db: Session = Depends(get_db_session)):
+    model = db.query(Model).filter(Model.id == model_id).first()
     if model is None:
         raise HTTPException(status_code=404, detail="Model not found.")
-    return ModelResponse.model_validate(model)
+    return model
 
 @router.put("/models/{model_id}/activate", response_model=ModelResponse)
-def activate_model(model_id: uuid.UUID, db: Connection = Depends(get_db_connection)):
-    stmt_select = select(models_table).where(models_table.c.id == model_id)
-    model_to_activate = db.execute(stmt_select).fetchone()
+def activate_model(model_id: int, db: Session = Depends(get_db_session)):
+    model_to_activate = db.query(Model).filter(Model.id == model_id).first()
     if model_to_activate is None:
         raise HTTPException(status_code=404, detail="Model not found.")
     
     asset_id = model_to_activate.asset_id
 
     try:
-        stmt_deactivate_all = update(models_table).where(
-            models_table.c.asset_id == asset_id,
-            models_table.c.is_active == True
-        ).values(is_active=False)
-        db.execute(stmt_deactivate_all)
+        # Deactivate all other models for this asset
+        db.query(Model).filter(
+            Model.asset_id == asset_id,
+            Model.is_active == True
+        ).update({'is_active': False}, synchronize_session=False)
 
-        stmt_activate_one = update(models_table).where(models_table.c.id == model_id).values(is_active=True)
-        db.execute(stmt_activate_one)
+        # Activate the selected model
+        model_to_activate.is_active = True
         db.commit()
-
-        updated_model = db.execute(stmt_select).fetchone()
-        return ModelResponse.model_validate(updated_model)
+        db.refresh(model_to_activate)
+        return model_to_activate
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to activate model: {e}")
 
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_model(model_id: uuid.UUID, db: Connection = Depends(get_db_connection)):
-    stmt = delete(models_table).where(models_table.c.id == model_id)
-    result = db.execute(stmt)
-    if result.rowcount == 0:
+def delete_model(model_id: int, db: Session = Depends(get_db_session)):
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if model is None:
         raise HTTPException(status_code=404, detail="Model not found.")
+    db.delete(model)
     db.commit()
     return
 
 # --- API Key Endpoints ---
 
 @router.post("/api-keys", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
-def create_api_key(key_create: ApiKeyCreate, db: Connection = Depends(get_db_connection)):
-    new_key = str(uuid.uuid4())
-    key_hash = new_key # 实际应用中应使用 bcrypt 等进行哈希
+def create_api_key(key_create: ApiKeyCreate, db: Session = Depends(get_db_session)):
+    new_key_str = str(uuid.uuid4())
+    key_hash = new_key_str # In a real app, use bcrypt etc. for hashing
 
     try:
-        stmt = insert(api_keys_table).values(
-            id=uuid.uuid4(),
+        new_api_key = ApiKey(
             key_hash=key_hash,
             description=key_create.description,
             is_active=True,
             created_at=datetime.now()
         )
-        result = db.execute(stmt)
+        db.add(new_api_key)
         db.commit()
+        db.refresh(new_api_key)
         
-        # 核心修复：返回 ApiKeyCreateResponse，包含明文密钥
         response_data = ApiKeyCreateResponse(
-            id=result.inserted_primary_key[0],
-            key_hash=key_hash, # 确保这里是key_hash
-            key=new_key, # 明文密钥
-            description=key_create.description,
-            is_active=True,
-            created_at=datetime.now(),
-            expires_at=None
+            id=new_api_key.id,
+            key_hash=new_api_key.key_hash,
+            key=new_key_str,
+            description=new_api_key.description,
+            is_active=new_api_key.is_active,
+            created_at=new_api_key.created_at,
+            expires_at=new_api_key.expires_at
         )
         return response_data
     except IntegrityError:
@@ -230,34 +230,27 @@ def create_api_key(key_create: ApiKeyCreate, db: Connection = Depends(get_db_con
         raise HTTPException(status_code=500, detail=f"Failed to create API Key: {e}")
 
 @router.get("/api-keys", response_model=List[ApiKeyResponse])
-def read_api_keys(db: Connection = Depends(get_db_connection)):
-    stmt = select(api_keys_table)
-    keys = db.execute(stmt).fetchall()
-    # 核心修复：确保从数据库行映射到 ApiKeyResponse 时，key_hash ��段被正确填充
-    return [ApiKeyResponse.model_validate(key, from_attributes=True) for key in keys]
+def read_api_keys(db: Session = Depends(get_db_session)):
+    keys = db.query(ApiKey).all()
+    return keys
 
 @router.put("/api-keys/{key_id}/toggle-active", response_model=ApiKeyResponse)
-def toggle_api_key_active(key_id: uuid.UUID, db: Connection = Depends(get_db_connection)):
-    stmt_select = select(api_keys_table).where(api_keys_table.c.id == key_id)
-    key_record = db.execute(stmt_select).fetchone()
+def toggle_api_key_active(key_id: uuid.UUID, db: Session = Depends(get_db_session)):
+    key_record = db.query(ApiKey).filter(ApiKey.id == key_id).first()
     if key_record is None:
         raise HTTPException(status_code=404, detail="API Key not found.")
     
-    new_active_status = not key_record.is_active
-    stmt_update = update(api_keys_table).where(api_keys_table.c.id == key_id).values(is_active=new_active_status)
-    db.execute(stmt_update)
+    key_record.is_active = not key_record.is_active
     db.commit()
-
-    updated_key = db.execute(stmt_select).fetchone()
-    # 核心修复：确保从数据库行映射到 ApiKeyResponse 时，key_hash 字段被正确填充
-    return ApiKeyResponse.model_validate(updated_key, from_attributes=True)
+    db.refresh(key_record)
+    return key_record
 
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_api_key(key_id: uuid.UUID, db: Connection = Depends(get_db_connection)):
-    stmt = delete(api_keys_table).where(api_keys_table.c.id == key_id)
-    result = db.execute(stmt)
-    if result.rowcount == 0:
+def delete_api_key(key_id: uuid.UUID, db: Session = Depends(get_db_session)):
+    key_record = db.query(ApiKey).filter(ApiKey.id == key_id).first()
+    if key_record is None:
         raise HTTPException(status_code=404, detail="API Key not found.")
+    db.delete(key_record)
     db.commit()
     return
 
