@@ -50,7 +50,7 @@ def train_lgbm_model(
     historical_forecasts_scaled = model.historical_forecasts(val_target_scaled, future_covariates=val_cov_scaled, start=0.1, forecast_horizon=1, stride=1, retrain=False, verbose=True)
     historical_forecasts = scaler_target.inverse_transform(historical_forecasts_scaled)
     mape_score = mape(val_target, historical_forecasts)
-    metrics = {'mape': mape_score}
+    metrics = {'mape': float(mape_score.item())}
     print(f"--- LGBM Validation MAPE: {mape_score:.2f}% ---")
     return model, scaler_target, scaler_cov, metrics
 
@@ -90,7 +90,7 @@ def train_tide_model(
     historical_forecasts_scaled = model.historical_forecasts(val_target_scaled, future_covariates=val_cov_scaled, start=0.1, forecast_horizon=1, stride=1, retrain=False, verbose=True)
     historical_forecasts = scaler_target.inverse_transform(historical_forecasts_scaled)
     mape_score = mape(val_target, historical_forecasts)
-    metrics = {'mape': mape_score}
+    metrics = {'mape': float(mape_score.item())}
     print(f"--- TiDE Validation MAPE: {mape_score:.2f}% ---")
     return model, scaler_target, scaler_cov, metrics
 
