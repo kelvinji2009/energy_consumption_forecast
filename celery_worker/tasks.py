@@ -65,6 +65,13 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
         # 3. Call the core training service
         model, scaler_target, scaler_cov, metrics = train_model(model_type=model_type, data=df)
 
+        # Handle additional scaler for TFT
+        scaler_past_cov = None
+        if model_type == "TFT":
+            # Re-call train_model to get the 4th return value (scaler_past_cov)
+            # This is a workaround as Python doesn't support multiple return types easily
+            _, _, scaler_past_cov, _, _ = train_model(model_type=model_type, data=df) # Re-run with dummy vars
+
         # 4. Upload model and scalers to S3
         model_version = datetime.now().strftime("%Y%m%d%H%M%S")
         s3_prefix = f"{asset_id}/{model_id}_{model_version}"
@@ -72,8 +79,13 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
         model_key = f"{s3_prefix}/model.joblib"
         scaler_target_key = f"{s3_prefix}/scaler_target.joblib"
         scaler_cov_key = f"{s3_prefix}/scaler_cov.joblib"
+        scaler_past_cov_key = f"{s3_prefix}/scaler_past_cov.joblib" if scaler_past_cov else None
 
-        for key, obj in zip([model_key, scaler_target_key, scaler_cov_key], [model, scaler_target, scaler_cov]):
+        artifacts_to_upload = [(model_key, model), (scaler_target_key, scaler_target), (scaler_cov_key, scaler_cov)]
+        if scaler_past_cov_key:
+            artifacts_to_upload.append((scaler_past_cov_key, scaler_past_cov))
+
+        for key, obj in artifacts_to_upload:
             with BytesIO() as buffer:
                 joblib.dump(obj, buffer)
                 buffer.seek(0)
@@ -89,8 +101,11 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
             "scaler_cov_path": scaler_cov_key,
             "training_data_path": s3_data_path,
             "metrics": metrics,
-            "description": f"LGBM model trained on {datetime.now().strftime('%Y-%m-%d')}"
+            "description": f"{model_type} model trained on {datetime.now().strftime('%Y-%m-%d')}"
         }
+        if scaler_past_cov_key:
+            update_values["scaler_past_cov_path"] = scaler_past_cov_key
+        
         db.query(Model).filter(Model.id == model_id).update(update_values)
         db.commit()
 

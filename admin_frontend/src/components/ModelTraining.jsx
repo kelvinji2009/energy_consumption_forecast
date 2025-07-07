@@ -26,7 +26,7 @@ function ModelTraining() {
 
     const [selectedAlgorithm, setSelectedAlgorithm] = useState('LightGBM'); // New state for algorithm selection
 
-    const algorithms = ['LightGBM', 'TiDE']; // Available algorithms
+    const algorithms = ['LightGBM', 'TiDE', 'LSTM', 'TFT']; // Available algorithms
 
     const handleSubmit = (event) => {
         event.preventDefault();
