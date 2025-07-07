@@ -1,5 +1,9 @@
 version: '3.8'
 
+networks:
+  app-network:
+    driver: bridge
+
 services:
   # PostgreSQL Database Service
   db:
@@ -17,6 +21,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - app-network
 
   # Redis Service for Celery
   redis:
@@ -26,6 +32,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - app-network
+
+  # MinIO S3-Compatible Storage Service
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000" # API Port
+      - "9001:9001" # Console Port
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    networks:
+      - app-network
 
   # Backend API Service (FastAPI)
   api:
@@ -40,11 +68,18 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_BROKER_URL=${REDIS_BROKER_URL}
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
 
   # Celery Worker Service
   worker:
@@ -57,11 +92,18 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_BROKER_URL=${REDIS_BROKER_URL}
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
     depends_on:
       redis:
         condition: service_healthy
       db:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
 
   # One-off service to initialize the database
   db-init:
@@ -80,6 +122,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - app-network
 
   # Frontend Service (React + Nginx)
   frontend:
@@ -91,6 +135,8 @@ services:
     depends_on:
       - api
       - db-init # Make frontend wait for db init to complete
+    networks:
+      - app-network
 
   # Development-only service to run npm commands and the Vite dev server
   frontend-dev:
@@ -103,7 +149,11 @@ services:
     volumes:
       - ./admin_frontend:/app
       - /app/node_modules
+    networks:
+      - app-network
 
 volumes:
   postgres_data:
+    driver: local
+  minio_data:
     driver: local

@@ -9,136 +9,74 @@ function ModelList() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://127.0.0.1:8000/admin/models');
+      const response = await fetch('/api/admin/models');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      setModels(data);
+      setModels(data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))); // Sort by creation date
     } catch (error) {
       console.error("Error fetching models:", error);
-      setError(error);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchModels();
+    const interval = setInterval(fetchModels, 5000); // Refresh every 5 seconds
+    fetchModels(); // Initial fetch
+    return () => clearInterval(interval); // Cleanup on unmount
   }, []);
 
-  const handleActivateModel = async (modelId, assetId) => {
-    try {
-      const activateResponse = await fetch(`http://127.0.0.1:8000/admin/models/${modelId}/activate`, {
-        method: 'PUT',
-      });
-      if (!activateResponse.ok) {
-        throw new Error(`HTTP error! status: ${activateResponse.status}`);
-      }
-      alert(`模型 ${modelId} 已激活！`);
-      fetchModels(); // 刷新列表
-    } catch (error) {
-      console.error("Error activating model:", error);
-      setError(error);
-      alert(`激活模型失败: ${error.message}`);
+  const getStatusStyle = (status) => {
+    switch (status) {
+      case 'COMPLETED':
+        return { color: 'green', fontWeight: 'bold' };
+      case 'TRAINING':
+        return { color: 'orange', fontWeight: 'bold' };
+      case 'PENDING':
+        return { color: '#6c757d', fontWeight: 'bold' };
+      case 'FAILED':
+        return { color: 'red', fontWeight: 'bold' };
+      default:
+        return {};
     }
   };
 
-  const handleDeleteModel = async (modelId) => {
-    if (window.confirm('确定要删除此模型吗？')) {
-      try {
-        const response = await fetch(`http://127.0.0.1:8000/admin/models/${modelId}`, {
-          method: 'DELETE',
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        alert(`模型 ${modelId} 已删除！`);
-        fetchModels(); // 刷新列表
-      } catch (error) {
-        console.error("Error deleting model:", error);
-        setError(error);
-        alert(`删除模型失败: ${error.message}`);
-      }
-    }
-  };
-
-  const handleTriggerTraining = async (assetId) => {
-    // 使用您提供的真实数据URL
-    const realDataUrl = "https://gist.githubusercontent.com/kelvinji2009/4410fb43d5c60b14d808d9f49994507d/raw/0492a9aaa409ac0db87cce6bf10ca0dfbfe296d7/simulated_plant_data.csv";
-    if (window.confirm(`确定要为资产 ${assetId} 触发模型训练吗？`)) {
-      try {
-        const response = await fetch('http://127.0.0.1:8000/admin/train-model', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ asset_id: assetId, data_url: realDataUrl }),
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const result = await response.json();
-        alert(`训练请求已发送: ${result.message} 任务ID: ${result.task_id}`);
-      } catch (error) {
-        console.error("Error triggering training:", error);
-        setError(error);
-        alert(`触发训练失败: ${error.message}`);
-      }
-    }
-  };
-
-  if (loading) {
-    return <div className="loading-message">加载模型中...</div>;
+  if (loading && models.length === 0) {
+    return <div className="loading-message">Loading models...</div>;
   }
 
   if (error) {
-    return <div className="error-message">加载模型失败: {error.message}</div>;
+    return <div className="error-message">Failed to load models: {error}</div>;
   }
 
   return (
     <div>
-      <h2>模型列表</h2>
+      <h2>Model List</h2>
+      <button onClick={fetchModels} disabled={loading} style={{ marginBottom: '1rem' }}>
+        {loading ? 'Refreshing...' : 'Refresh List'}
+      </button>
       {models.length === 0 ? (
-        <p>没有找到任何模型。</p>
+        <p>No models found. You can start a new training job on the 'Model Training' page.</p>
       ) : (
-        <ul>
+        <ul style={{ listStyle: 'none', padding: 0 }}>
           {models.map(model => (
-            <li key={model.id} style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-              <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                <span>资产ID: {model.asset_id}</span>
-                <span>版本: {model.version}</span>
-                <span>类型: {model.model_type}</span>
-                <span>活跃: {model.is_active ? '是' : '否'}</span>
+            <li key={model.id} style={{ border: '1px solid #ccc', borderRadius: '8px', padding: '1rem', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                <strong>Model ID: {model.id} (Asset: {model.asset_id})</strong>
+                <span style={getStatusStyle(model.status)}>{model.status}</span>
               </div>
-              <div style={{ width: '100%', marginBottom: '5px' }}>
-                <span>路径: {model.path}</span>
-              </div>
-              <div style={{ width: '100%', marginBottom: '5px' }}>
-                <span>训练时间: {new Date(model.trained_at).toLocaleString()}</span>
-              </div>
-              <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                {!model.is_active && (
-                  <button 
-                    onClick={() => handleActivateModel(model.id, model.asset_id)}
-                    style={{ padding: '8px 15px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                  >
-                    激活
-                  </button>
-                )}
-                <button 
-                  onClick={() => handleDeleteModel(model.id)}
-                  style={{ padding: '8px 15px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                >
-                  删除
-                </button>
-                <button 
-                  onClick={() => handleTriggerTraining(model.asset_id)}
-                  style={{ padding: '8px 15px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                >
-                  触发训练
-                </button>
-              </div>
+              <div><strong>Type:</strong> {model.model_type}</div>
+              <div><strong>Version:</strong> {model.model_version || 'N/A'}</div>
+              <div><strong>Created:</strong> {new Date(model.created_at).toLocaleString()}</div>
+              {model.metrics && (
+                <div><strong>Metrics (MAPE):</strong> {model.metrics.mape ? `${model.metrics.mape.toFixed(2)}%` : 'N/A'}</div>
+              )}
+              {model.model_path && (
+                <div style={{ wordBreak: 'break-all' }}><strong>S3 Path:</strong> {model.model_path}</div>
+              )}
             </li>
           ))}
         </ul>

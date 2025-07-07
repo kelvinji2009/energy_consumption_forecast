@@ -29,10 +29,19 @@ class Model(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, comment="模型的唯一ID")
     asset_id = Column(String, nullable=False, index=True, comment="关联的资产ID (外键到 assets.id)")
     model_type = Column(String(50), nullable=False, comment="模型类型，例如 LightGBM, TFT, LSTM, TiDE")
-    model_version = Column(String(50), nullable=False, unique=True, comment="模型版本，例如训练时间戳 20250706100000")
-    model_path = Column(Text, nullable=False, comment="主模型文件的路径")
-    scaler_path = Column(Text, nullable=True, comment="值缩放器文件的路径")
-    scaler_cov_path = Column(Text, nullable=True, comment="协变量缩放器文件的路径")
+    model_version = Column(String(50), nullable=False, comment="模型版本，例如训练时间戳 20250706100000")
+    
+    # --- NEW: Training Status ---
+    status = Column(String(50), nullable=False, default='PENDING', comment="训练状态: PENDING, TRAINING, COMPLETED, FAILED")
+
+    # --- MODIFIED: Paths are now S3 object keys ---
+    model_path = Column(Text, nullable=True, comment="主模型文件在S3中的路径 (key)")
+    scaler_path = Column(Text, nullable=True, comment="值缩放器文件在S3中的路径 (key)")
+    scaler_cov_path = Column(Text, nullable=True, comment="协变量缩放器文件在S3中的路径 (key)")
+    
+    # --- NEW: Traceability ---
+    training_data_path = Column(Text, nullable=True, comment="训练数据在S3中的路径 (key)")
+
     is_active = Column(Boolean, nullable=False, default=False, comment="是否是当前资产的默认推荐模型")
     created_at = Column(DateTime, nullable=False, default=func.now(), comment="模型记录的创建时间")
     description = Column(Text, nullable=True, comment="模型的用户友好描述")
