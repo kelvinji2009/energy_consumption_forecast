@@ -71,6 +71,7 @@ class TrainingJobCreate(BaseModel):
     model_type: str = Field("LightGBM", description="The type of model to train.")
     s3_data_path: str = Field(..., description="The path (key) to the training CSV file in the S3 bucket.")
     description: Optional[str] = "LGBM model trained via API."
+    n_epochs: int = Field(20, description="Number of training epochs for the model.")
 
 class TrainingJobResponse(BaseModel):
     message: str
@@ -144,7 +145,8 @@ def create_training_job(job_request: TrainingJobCreate, db: Session = Depends(ge
         model_id=new_model.id,
         asset_id=new_model.asset_id,
         s3_data_path=job_request.s3_data_path,
-        model_type=job_request.model_type
+        model_type=job_request.model_type,
+        n_epochs=job_request.n_epochs
     )
     
     print(f"[Admin API] Queued training task {task.id} for model {new_model.id}")

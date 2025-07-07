@@ -4,6 +4,7 @@ function ModelTraining() {
     const [assets, setAssets] = useState([]);
     const [selectedAsset, setSelectedAsset] = useState('');
     const [s3DataPath, setS3DataPath] = useState('');
+    const [nEpochs, setNEpochs] = useState(20); // New state for n_epochs
     const [message, setMessage] = useState(null);
     const [error, setError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -26,7 +27,7 @@ function ModelTraining() {
 
     const [selectedAlgorithm, setSelectedAlgorithm] = useState('LightGBM'); // New state for algorithm selection
 
-    const algorithms = ['LightGBM', 'TiDE', 'LSTM', 'TFT']; // Available algorithms
+    const algorithms = ['LightGBM', 'TiDE', 'LSTM', 'TFT', 'TFT (No Past Covariates)']; // Available algorithms
 
     const handleSubmit = (event) => {
         event.preventDefault();
@@ -37,8 +38,9 @@ function ModelTraining() {
         const jobRequest = {
             asset_id: selectedAsset,
             s3_data_path: s3DataPath,
-            model_type: selectedAlgorithm, // Use selected algorithm
-            description: `UI-initiated training for ${selectedAsset} with ${selectedAlgorithm}`
+            model_type: selectedAlgorithm,
+            description: `UI-initiated training for ${selectedAsset} with ${selectedAlgorithm}`,
+            n_epochs: nEpochs // Include n_epochs in the request
         };
 
         fetch('/api/admin/training-jobs', {
@@ -109,6 +111,22 @@ function ModelTraining() {
                         required
                         style={{ width: '100%', padding: '0.5rem' }}
                     />
+                </div>
+                <div>
+                    <label htmlFor="n-epochs" style={{ display: 'block', marginBottom: '0.5rem' }}>Number of Epochs</label>
+                    <input 
+                        id="n-epochs"
+                        type="number" 
+                        value={nEpochs} 
+                        onChange={e => setNEpochs(parseInt(e.target.value, 10))}
+                        min="1" // Minimum value
+                        max="200" // Maximum value to prevent excessively long training
+                        required
+                        style={{ width: '100%', padding: '0.5rem' }}
+                    />
+                    <small style={{ color: '#666', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                        Recommended for neural networks (TiDE, LSTM, TFT): 20-100. LightGBM does not use epochs.
+                    </small>
                 </div>
                 <button type="submit" disabled={isLoading || assets.length === 0} style={{ padding: '0.75rem', cursor: 'pointer' }}>
                     {isLoading ? 'Starting Job...' : 'Start Training Job'}

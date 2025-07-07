@@ -34,7 +34,7 @@ def get_s3_client():
     )
 
 @celery_app.task(bind=True, name="train_model_task")
-def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, model_type: str):
+def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, model_type: str, n_epochs: int = 20):
     """
     Celery task to train a model, save artifacts to S3, and update the database.
     """
@@ -63,14 +63,15 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
         df = pd.read_csv(BytesIO(data_content), index_col='timestamp', parse_dates=True)
 
         # 3. Call the core training service
-        model, scaler_target, scaler_cov, metrics = train_model(model_type=model_type, data=df)
-
-        # Handle additional scaler for TFT
-        scaler_past_cov = None
+        # Dynamically unpack based on model_type
         if model_type == "TFT":
-            # Re-call train_model to get the 4th return value (scaler_past_cov)
-            # This is a workaround as Python doesn't support multiple return types easily
-            _, _, scaler_past_cov, _, _ = train_model(model_type=model_type, data=df) # Re-run with dummy vars
+            model, scaler_target, scaler_past_cov, scaler_cov, metrics = train_model(model_type=model_type, data=df, n_epochs=n_epochs)
+        elif model_type == "TFT (No Past Covariates)":
+            model, scaler_target, scaler_cov, metrics = train_model(model_type=model_type, data=df, n_epochs=n_epochs)
+            scaler_past_cov = None # Ensure it's None if not TFT
+        else:
+            model, scaler_target, scaler_cov, metrics = train_model(model_type=model_type, data=df, n_epochs=n_epochs)
+            scaler_past_cov = None # Ensure it's None if not TFT
 
         # 4. Upload model and scalers to S3
         model_version = datetime.now().strftime("%Y%m%d%H%M%S")
