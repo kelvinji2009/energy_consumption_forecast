@@ -1,21 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import apiClient from '../apiClient'; // Import the centralized API client
 
-function ApiKeyList() {
+function ApiKeyList() { // Remove apiKey prop
   const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [newKeyDescription, setNewKeyDescription] = useState('');
-  const [generatedKey, setGeneratedKey] = useState(null); // 用于显示新生成的密钥
+  const [generatedKey, setGeneratedKey] = useState(null); // To display the newly generated key
 
-  const fetchApiKeys = async () => {
+  const fetchApiKeys = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://127.0.0.1:8000/admin/api-keys');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await apiClient('/admin/api-keys');
       setApiKeys(data);
     } catch (error) {
       console.error("Error fetching API keys:", error);
@@ -23,61 +20,36 @@ function ApiKeyList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchApiKeys();
-  }, []);
+  }, [fetchApiKeys]);
 
   const handleCreateKey = async (e) => {
     e.preventDefault();
-    setGeneratedKey(null); // 清除上次生成的密钥
+    setGeneratedKey(null); // Clear previous key
     try {
-      const response = await fetch('http://127.0.0.1:8000/admin/api-keys', {
+      const data = await apiClient('/admin/api-keys', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ description: newKeyDescription }),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setGeneratedKey(data.key); // 显示新生成的密钥
-      setNewKeyDescription(''); // 清空输入框
-      fetchApiKeys(); // 刷新列表
+      setGeneratedKey(data.key); // Display the new key
+      setNewKeyDescription(''); // Clear input
+      fetchApiKeys(); // Refresh the list
     } catch (error) {
       console.error("Error creating API key:", error);
       setError(error);
     }
   };
 
-  const handleToggleActive = async (keyId, currentStatus) => {
-    try {
-      const response = await fetch(`http://127.0.0.1:8000/admin/api-keys/${keyId}/toggle-active`, {
-        method: 'PUT',
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      fetchApiKeys(); // 刷新列表
-    } catch (error) {
-      console.error("Error toggling API key status:", error);
-      setError(error);
-    }
-  };
-
   const handleDeleteKey = async (keyId) => {
-    if (window.confirm('确定要删除此API密钥吗？')) {
+    if (window.confirm('Are you sure you want to delete this API key?')) {
       try {
-        const response = await fetch(`http://127.0.0.1:8000/admin/api-keys/${keyId}`, {
+        await apiClient(`/admin/api-keys/${keyId}`, {
           method: 'DELETE',
         });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        fetchApiKeys(); // 刷新列表
+        fetchApiKeys(); // Refresh the list
       } catch (error) {
         console.error("Error deleting API key:", error);
         setError(error);
@@ -85,72 +57,77 @@ function ApiKeyList() {
     }
   };
 
+  // NOTE: The /toggle-active endpoint was not implemented in the backend API.
+  // This function is commented out to prevent errors. If the endpoint is added later,
+  // it can be re-enabled.
+  /*
+  const handleToggleActive = async (keyId) => {
+    try {
+      await apiClient(`/admin/api-keys/${keyId}/toggle-active`, {
+        method: 'PUT',
+      });
+      fetchApiKeys(); // Refresh the list
+    } catch (error) {
+      console.error("Error toggling API key status:", error);
+      setError(error);
+    }
+  };
+  */
+
   if (loading) {
-    return <div className="loading-message">加载API密钥中...</div>;
+    return <div className="loading-message">Loading API Keys...</div>;
   }
 
   if (error) {
-    return <div className="error-message">加载API密钥失败: {error.message}</div>;
+    return <div className="error-message">Failed to load API Keys: {error.message}</div>;
   }
 
   return (
     <div>
-      <h2>API 密钥管理</h2>
+      <h2>API Key Management</h2>
 
-      <h3>生成新密钥</h3>
+      <h3>Create New Key</h3>
       <form onSubmit={handleCreateKey} style={{ marginBottom: '20px' }}>
         <input
           type="text"
-          placeholder="密钥描述 (可选)"
+          placeholder="Key Description (optional)"
           value={newKeyDescription}
           onChange={(e) => setNewKeyDescription(e.target.value)}
           style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
         />
-        <button type="submit" style={{ padding: '8px 15px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>生成密钥</button>
+        <button type="submit" style={{ padding: '8px 15px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Create Key</button>
       </form>
       {generatedKey && (
         <div style={{ backgroundColor: '#e9f7ef', border: '1px solid #d0e9da', padding: '10px', borderRadius: '5px', marginBottom: '20px' }}>
-          <strong>新生成的密钥 (请妥善保存，仅显示一次):</strong><br/>
+          <strong>New key generated (please save, it is shown only once):</strong><br/>
           <code>{generatedKey}</code>
         </div>
       )}
 
-      <h3>现有密钥</h3>
+      <h3>Existing Keys</h3>
       {apiKeys.length === 0 ? (
-        <p>没有找到任何API密钥。</p>
+        <p>No API keys found.</p>
       ) : (
         <ul>
           {apiKeys.map(key => (
             <li key={key.id} style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
               <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
                 <span>ID: {key.id}</span>
-                <span>状态: {key.is_active ? '活跃' : '禁用'}</span>
+                <span>Status: {key.is_active ? 'Active' : 'Inactive'}</span>
               </div>
               <div style={{ width: '100%', marginBottom: '5px' }}>
-                <span>描述: {key.description || '无'}</span>
+                <span>Description: {key.description || 'None'}</span>
               </div>
               <div style={{ width: '100%', marginBottom: '5px' }}>
-                <span>创建时间: {new Date(key.created_at).toLocaleString()}</span>
+                <span>Created: {new Date(key.created_at).toLocaleString()}</span>
               </div>
               <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                <button 
-                  onClick={() => handleToggleActive(key.id, key.is_active)}
-                  style={{
-                    padding: '8px 15px',
-                    backgroundColor: key.is_active ? '#ffc107' : '#17a2b8',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {key.is_active ? '禁用' : '启用'}
-                </button>
+                {/* <button onClick={() => handleToggleActive(key.id)}>Toggle Active</button> */}
                 <button 
                   onClick={() => handleDeleteKey(key.id)}
                   style={{ padding: '8px 15px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                 >
-                  删除
+                  Delete
                 </button>
               </div>
             </li>

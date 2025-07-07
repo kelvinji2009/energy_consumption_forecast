@@ -2,8 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
-from fastapi import FastAPI, HTTPException, Request, Depends, status, UploadFile, File, Form
-
+from fastapi import FastAPI, HTTPException, Request, Depends, status, UploadFile, File, Form, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -11,6 +10,8 @@ from typing import List, Optional
 from datetime import datetime
 from contextlib import asynccontextmanager
 import io
+import boto3 # Import boto3
+from typing import Any
 
 import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -24,11 +25,26 @@ from api_server.admin_api import router as admin_router
 # Import Darts, this works for both 'darts' and 'u8darts'
 from darts import TimeSeries
 from darts.dataprocessing.transformers import Scaler
-from darts.models import LightGBMModel
+from darts.models import LightGBMModel, TiDEModel, RNNModel, TFTModel # Import all models
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
 from darts.ad.detectors import QuantileDetector
 
 print("--- Script main.py starting to execute (Ultimate Compatibility Version) ---")
+
+# --- S3/MinIO Configuration ---
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
+S3_BUCKET_NAME = "models"
+
+def get_s3_client():
+    """Creates a boto3 S3 client."""
+    return boto3.client(
+        's3',
+        endpoint_url=S3_ENDPOINT_URL,
+        aws_access_key_id=S3_ACCESS_KEY_ID,
+        aws_secret_access_key=S3_SECRET_ACCESS_KEY
+    )
 
 # --- Pydantic Models ---
 class TimeSeriesDataPoint(BaseModel):
@@ -36,6 +52,7 @@ class TimeSeriesDataPoint(BaseModel):
     value: float
     temp: Optional[float] = None
     production: Optional[float] = None
+    humidity: Optional[float] = None # Added humidity
 
 class PredictionRequest(BaseModel):
     historical_data: List[TimeSeriesDataPoint]
@@ -48,6 +65,7 @@ class ForecastDataPoint(BaseModel):
 class PredictionResponse(BaseModel):
     asset_id: str
     forecast_data: List[ForecastDataPoint]
+    historical_data: Optional[List[TimeSeriesDataPoint]] = None
 
 class AnomalyDetectionRequest(BaseModel):
     data_stream: List[TimeSeriesDataPoint]
@@ -69,7 +87,6 @@ class ModelInfo(BaseModel):
 
 
 # --- Lifespan, App, Security setup ---
-# ... (Keep these sections as they were, they are correct) ...
 async def lifespan(app: FastAPI):
     print("[Lifespan] Startup event triggered.")
     app.state.model_cache = {}
@@ -88,17 +105,7 @@ app.add_middleware(
 app.include_router(admin_router)
 security = HTTPBearer()
 
-# Dependency to get DB session
-def get_db():
-    with Session(engine) as session:
-        yield session
-
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    api_key = credentials.credentials
-    stmt = select(ApiKey).where(ApiKey.key_hash == api_key, ApiKey.is_active == True)
-    if not db.execute(stmt).scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or inactive API Key")
-    return api_key
+from api_server.dependencies import verify_api_key, get_db
 
 # --- Helper Functions ---
 def _create_timeseries_from_request(data: List[TimeSeriesDataPoint]) -> TimeSeries:
@@ -113,6 +120,17 @@ def _build_future_covariates(series: TimeSeries, horizon: int, model) -> TimeSer
     return datetime_attribute_timeseries(dummy_series, "hour", True).stack(
         datetime_attribute_timeseries(dummy_series, "day_of_week", True)
     ).astype(np.float32)
+
+# --- New Helper to load artifacts from S3 ---
+def _load_artifact_from_s3(s3_path: str, s3_client) -> Any:
+    if not s3_path:
+        return None
+    try:
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_path)
+        return joblib.load(io.BytesIO(response['Body'].read()))
+    except Exception as e:
+        print(f"Error loading artifact from S3 '{s3_path}': {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to load model artifact from S3: {s3_path}")
 
 @app.get("/ping", summary="Check service status")
 def ping(): return {"status": "ok"}
@@ -227,25 +245,33 @@ def detect_anomalies(asset_id: str, request: AnomalyDetectionRequest, http_reque
 async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), forecast_horizon: int = Form(168), model_id: int = Form(...), db: Session = Depends(get_db)):
     print(f"\n--- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} using model ID: {model_id} ---")
     
+    # 0. Fetch model metadata from DB first
+    model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
+    if not model_record:
+        raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
+
     # 1. Load Model from Cache or Database
     model_cache = http_request.app.state.model_cache
     model_key = f"model_{model_id}"
 
     if model_key not in model_cache:
         # Fetch model paths from DB
-        model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
-        if not model_record:
-            raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
+        # model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
+        # if not model_record:
+        #     raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
 
         try:
-            model_obj = joblib.load(os.path.join(PROJECT_ROOT, model_record.model_path))
-            scaler_obj = joblib.load(os.path.join(PROJECT_ROOT, model_record.scaler_path)) if model_record.scaler_path else None
-            scaler_cov_obj = joblib.load(os.path.join(PROJECT_ROOT, model_record.scaler_cov_path)) if model_record.scaler_cov_path else None
+            s3_client = get_s3_client()
+            model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+            scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
+            scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
+            scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client) # Load past_cov_scaler
             
             model_cache[model_key] = {
                 'model': model_obj,
                 'scaler': scaler_obj,
-                'scaler_cov': scaler_cov_obj
+                'scaler_cov': scaler_cov_obj,
+                'scaler_past_cov': scaler_past_cov_obj # Store past_cov_scaler
             }
             print(f"[Cache] Model ID {model_id} loaded into cache.")
         except Exception as e:
@@ -255,6 +281,7 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
     model = model_artifacts['model']
     scaler = model_artifacts.get('scaler')
     scaler_cov = model_artifacts.get('scaler_cov')
+    scaler_past_cov = model_artifacts.get('scaler_past_cov') # Get past_cov_scaler
 
     # 2. Read and Parse CSV
     try:
@@ -282,7 +309,8 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
                 timestamp=row['timestamp'], 
                 value=row['value'],
                 temp=row.get('temp'),
-                production=row.get('production')
+                production=row.get('production'),
+                humidity=row.get('humidity') # Added humidity
             ) for index, row in df.iterrows()
         ]
 
@@ -300,7 +328,16 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
         future_covs_raw = _build_future_covariates(series_scaled, forecast_horizon, model)
         future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
 
-        forecast_scaled = model.predict(n=forecast_horizon, series=series_scaled, future_covariates=future_covs)
+        # --- Handle past covariates for TFT models ---
+        past_covs = None
+        if model_record.model_type == "TFT": # Check model type from DB record
+            # Extract past covariates from historical_data
+            past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
+            past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
+            past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", ['production', 'temp', 'humidity'], freq='h').astype(np.float32)
+            past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
+
+        forecast_scaled = model.predict(n=forecast_horizon, series=series_scaled, future_covariates=future_covs, past_covariates=past_covs)
         
         forecast = scaler.inverse_transform(forecast_scaled) if scaler else forecast_scaled
         
@@ -310,7 +347,115 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
         
         forecast_data = [ForecastDataPoint(timestamp=ts, predicted_value=row['predicted_value']) for ts, row in forecast_df.iterrows()]
         
-        return PredictionResponse(asset_id=asset_id, forecast_data=forecast_data)
+        return PredictionResponse(asset_id=asset_id, forecast_data=forecast_data, historical_data=historical_data)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+
+@app.post("/assets/{asset_id}/predict_from_s3", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
+async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: str = Query(...), forecast_horizon: int = Query(168), model_id: int = Query(...), db: Session = Depends(get_db)):
+    print(f"\n--- Received prediction request for asset: {asset_id} from S3 path: {s3_data_path} with horizon: {forecast_horizon} using model ID: {model_id} ---")
+
+    # 0. Fetch model metadata from DB first
+    model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
+    if not model_record:
+        raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
+
+    # 1. Load Model from Cache or Database
+    model_cache = http_request.app.state.model_cache
+    model_key = f"model_{model_id}"
+
+    if model_key not in model_cache:
+        model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
+        if not model_record:
+            raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
+
+        try:
+            s3_client = get_s3_client()
+            model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+            scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
+            scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
+            scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client)
+            
+            model_cache[model_key] = {
+                'model': model_obj,
+                'scaler': scaler_obj,
+                'scaler_cov': scaler_cov_obj,
+                'scaler_past_cov': scaler_past_cov_obj
+            }
+            print(f"[Cache] Model ID {model_id} loaded into cache.")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load model artifacts for ID {model_id}: {e}")
+    
+    model_artifacts = model_cache[model_key]
+    model = model_artifacts['model']
+    scaler = model_artifacts.get('scaler')
+    scaler_cov = model_artifacts.get('scaler_cov')
+    scaler_past_cov = model_artifacts.get('scaler_past_cov')
+
+    # 2. Read and Parse CSV from S3
+    try:
+        s3_client = get_s3_client()
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_data_path)
+        contents = response['Body'].read()
+        df = pd.read_csv(io.BytesIO(contents))
+        
+        df.rename(columns={'energy_kwh': 'value'}, inplace=True)
+        
+        if 'timestamp' not in df.columns or 'value' not in df.columns:
+            raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
+
+        historical_hours = len(df)
+        max_horizon = historical_hours // 4
+        if forecast_horizon > max_horizon:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Forecast horizon ({forecast_horizon} hours) is too large for the provided historical data ({historical_hours} hours). Maximum allowed horizon is {max_horizon} hours."
+            )
+            
+        historical_data = [
+            TimeSeriesDataPoint(
+                timestamp=row['timestamp'], 
+                value=row['value'],
+                temp=row.get('temp'),
+                production=row.get('production'),
+                humidity=row.get('humidity')
+            ) for index, row in df.iterrows()
+        ]
+
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=400, detail=f"Error processing CSV file from S3: {e}")
+
+    # 3. Reuse existing prediction logic
+    try:
+        series = _create_timeseries_from_request(historical_data)
+        series_scaled = scaler.transform(series) if scaler else series
+        
+        future_covs_raw = _build_future_covariates(series_scaled, forecast_horizon, model)
+        future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
+
+        past_covs = None
+        if model_record.model_type == "TFT": # Check model type from DB record
+            past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
+            past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
+            past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", ['production', 'temp', 'humidity'], freq='h').astype(np.float32)
+            past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
+
+        forecast_scaled = model.predict(n=forecast_horizon, series=series_scaled, future_covariates=future_covs, past_covariates=past_covs)
+        
+        forecast = scaler.inverse_transform(forecast_scaled) if scaler else forecast_scaled
+        
+        print("Prediction from S3 successful.")
+        
+        forecast_df = pd.DataFrame(data=forecast.values(), index=forecast.time_index, columns=['predicted_value'])
+        
+        forecast_data = [ForecastDataPoint(timestamp=ts, predicted_value=row['predicted_value']) for ts, row in forecast_df.iterrows()]
+        
+        return PredictionResponse(asset_id=asset_id, forecast_data=forecast_data, historical_data=historical_data)
         
     except Exception as e:
         import traceback

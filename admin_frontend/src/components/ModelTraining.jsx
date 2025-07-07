@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import apiClient from '../apiClient';
 
 function ModelTraining() {
     const [assets, setAssets] = useState([]);
@@ -11,25 +12,26 @@ function ModelTraining() {
 
     // Fetch assets for the dropdown
     useEffect(() => {
-        fetch('/api/admin/assets')
-            .then(response => response.json())
-            .then(data => {
+        const fetchAssets = async () => {
+            try {
+                const data = await apiClient('/admin/assets');
                 setAssets(data);
                 if (data.length > 0) {
                     setSelectedAsset(data[0].id);
                 }
-            })
-            .catch(err => {
+            } catch (err) {
                 console.error("Failed to fetch assets:", err);
-                setError("Could not load assets. Is the API server running?");
-            });
+                setError("Could not load assets. Is the API server running and the API key correct?");
+            }
+        };
+        fetchAssets();
     }, []);
 
     const [selectedAlgorithm, setSelectedAlgorithm] = useState('LightGBM'); // New state for algorithm selection
 
     const algorithms = ['LightGBM', 'TiDE', 'LSTM', 'TFT', 'TFT (No Past Covariates)']; // Available algorithms
 
-    const handleSubmit = (event) => {
+    const handleSubmit = async (event) => {
         event.preventDefault();
         setMessage(null);
         setError(null);
@@ -40,32 +42,21 @@ function ModelTraining() {
             s3_data_path: s3DataPath,
             model_type: selectedAlgorithm,
             description: `UI-initiated training for ${selectedAsset} with ${selectedAlgorithm}`,
-            n_epochs: nEpochs // Include n_epochs in the request
+            n_epochs: nEpochs,
         };
 
-        fetch('/api/admin/training-jobs', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(jobRequest),
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(err => { throw new Error(err.detail || 'An unknown error occurred.') });
-            }
-            return response.json();
-        })
-        .then(data => {
+        try {
+            const data = await apiClient('/admin/training-jobs', {
+                method: 'POST',
+                body: JSON.stringify(jobRequest),
+            });
             setMessage(`Training job started successfully! Model ID: ${data.model_id}, Task ID: ${data.task_id}`);
             setS3DataPath(''); // Clear input on success
-        })
-        .catch(err => {
+        } catch (err) {
             setError(`Failed to start training job: ${err.message}`);
-        })
-        .finally(() => {
+        } finally {
             setIsLoading(false);
-        });
+        }
     };
 
     return (

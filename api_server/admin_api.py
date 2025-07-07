@@ -1,6 +1,7 @@
 
 import os
 import uuid
+import bcrypt
 from datetime import datetime
 from typing import List, Optional
 
@@ -14,6 +15,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 from database.database import Asset, Model, ApiKey
 from celery_worker.tasks import train_model_task # UPDATED: Import new task
+from api_server.dependencies import verify_api_key # Import verify_api_key
 
 # --- Pydantic Models for Admin API ---
 
@@ -81,7 +83,7 @@ class TrainingJobResponse(BaseModel):
     status: str
 
 # --- Admin API Router ---
-router = APIRouter(prefix="/admin", tags=["Admin Operations"])
+router = APIRouter(prefix="/admin", tags=["Admin Operations"], dependencies=[Depends(verify_api_key)])
 
 # --- Dependency for Database Session ---
 from database.database import engine
@@ -166,8 +168,16 @@ def create_training_job(job_request: TrainingJobCreate, db: Session = Depends(ge
 
 @router.post("/api-keys", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_api_key(key_create: ApiKeyCreate, db: Session = Depends(get_db_session)):
+    """
+    Creates a new API key. 
+    The key is returned in plain text ONCE. 
+    The system stores only its bcrypt hash.
+    """
     new_key_str = str(uuid.uuid4())
-    key_hash = new_key_str # In a real app, use bcrypt etc. for hashing
+    
+    # Hash the key using bcrypt
+    hashed_key = bcrypt.hashpw(new_key_str.encode('utf-8'), bcrypt.gensalt())
+    key_hash = hashed_key.decode('utf-8')
 
     new_api_key = ApiKey(
         key_hash=key_hash,

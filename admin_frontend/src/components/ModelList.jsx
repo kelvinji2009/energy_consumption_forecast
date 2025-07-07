@@ -1,33 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import apiClient from '../apiClient';
 
 function ModelList() {
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    // Do not clear previous error, so the UI doesn't flicker
     try {
-      const response = await fetch('/api/admin/models');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await apiClient('/admin/models');
       setModels(data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))); // Sort by creation date
+      setError(null); // Clear error on success
     } catch (error) {
       console.error("Error fetching models:", error);
       setError(error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    const interval = setInterval(fetchModels, 5000); // Refresh every 5 seconds
     fetchModels(); // Initial fetch
+    const interval = setInterval(fetchModels, 5000); // Refresh every 5 seconds
     return () => clearInterval(interval); // Cleanup on unmount
-  }, []);
+  }, [fetchModels]);
 
   const getStatusStyle = (status) => {
     switch (status) {

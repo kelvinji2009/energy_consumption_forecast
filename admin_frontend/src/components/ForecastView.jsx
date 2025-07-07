@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import apiClient from '../apiClient';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -28,280 +29,398 @@ ChartJS.register(
   zoomPlugin
 );
 
-const API_BASE_URL = 'http://localhost:8000';
-
 function ForecastView() {
-  const [assets, setAssets] = useState([]);
-  const [selectedAsset, setSelectedAsset] = useState('');
-  const [models, setModels] = useState([]);
-  const [selectedModelType, setSelectedModelType] = useState('');
-  const [selectedModelId, setSelectedModelId] = useState('');
-  const [chartData, setChartData] = useState({ datasets: [] });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [fileName, setFileName] = useState('');
-  const [forecastHorizon, setForecastHorizon] = useState(168);
-  const [maxForecastHorizon, setMaxForecastHorizon] = useState(null);
-  const chartRef = useRef(null);
+    const [assets, setAssets] = useState([]);
+    const [selectedAsset, setSelectedAsset] = useState('');
+    const [models, setModels] = useState([]);
+    const [selectedModelId, setSelectedModelId] = useState('');
+    const [forecastHorizon, setForecastHorizon] = useState(168); // Default to 168 hours (1 week)
+    const [dataInputMethod, setDataInputMethod] = useState('upload'); // 'upload' or 's3'
+    const [s3DataPath, setS3DataPath] = useState('');
+    const [forecastResult, setForecastResult] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [chartData, setChartData] = useState({ datasets: [] });
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [fileName, setFileName] = useState('');
+    const [maxForecastHorizon, setMaxForecastHorizon] = useState(null);
+    const chartRef = useRef(null);
 
-  // Fetch assets on component mount
-  useEffect(() => {
-    const fetchAssets = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/admin/assets`);
-        if (!response.ok) throw new Error('Failed to fetch assets');
-        const data = await response.json();
-        setAssets(data);
-        if (data.length > 0) setSelectedAsset(data[0].id);
-      } catch (err) {
-        setError(err.message);
-      }
+    // Fetch assets on component mount
+    useEffect(() => {
+        const fetchAssets = async () => {
+            try {
+                const data = await apiClient('/admin/assets');
+                setAssets(data);
+                if (data.length > 0) {
+                    setSelectedAsset(prev => prev || data[0].id); // 只在未选中时赋值
+                }
+            } catch (err) {
+                console.error("Failed to fetch assets:", err);
+                setError("Could not load assets. Is the API server running and the API key correct?");
+            }
+        };
+        fetchAssets();
+    }, []);
+
+    // Fetch models when selectedAsset changes
+    useEffect(() => {
+        if (selectedAsset) {
+            setLoading(true);
+            setError(null);
+            const fetchModels = async () => {
+                try {
+                    const data = await apiClient(`/admin/models?asset_id=${selectedAsset}&status=COMPLETED`);
+                    // Sort models by creation date (newest first)
+                    const sortedModels = data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    setModels(sortedModels);
+                    if (sortedModels.length > 0) {
+                        setSelectedModelId(prev => prev || sortedModels[0].id); // 只在未选中时赋值
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch models:", err);
+                    setError("Could not load models for the selected asset.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+            fetchModels();
+        }
+    }, [selectedAsset]);
+
+    useEffect(() => {
+        if (maxForecastHorizon !== null && forecastHorizon > maxForecastHorizon) {
+            setForecastHorizon(Math.max(1, maxForecastHorizon));
+        }
+    }, [maxForecastHorizon, forecastHorizon]);
+
+    const handleFileChange = (event) => {
+        const file = event.target.files[0];
+        if (file && file.type === "text/csv") {
+            setSelectedFile(file);
+            setFileName(file.name);
+            setError(null);
+
+            // --- Instant Feedback Logic ---
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                    if (results.errors.length > 0) {
+                        console.error("CSV parsing errors:", results.errors);
+                        setError(`CSV 解析错误: ${results.errors[0].message}`);
+                        return;
+                    }
+                    const nonEmptyRows = results.data.filter(row => Object.values(row).some(val => val !== null && val !== ''));
+                    const historical_hours = nonEmptyRows.length;
+                    const max_horizon = Math.floor(historical_hours / 4);
+                    setMaxForecastHorizon(max_horizon);
+
+                    if (max_horizon <= 0) {
+                        setError('CSV 数据量太少，无法预测，请上传更多历史数据。');
+                        return;
+                    }
+                },
+                error: (err) => {
+                    console.error("PapaParse error:", err);
+                    setError(`CSV 文件读取失败: ${err.message}`);
+                }
+            });
+
+        } else {
+            setSelectedFile(null);
+            setFileName('');
+            setMaxForecastHorizon(null);
+            setError('Please select a valid .csv file.');
+        }
     };
-    fetchAssets();
-  }, []);
 
-  // Fetch models when selectedAsset changes
-  useEffect(() => {
-    const fetchModels = async () => {
-      if (!selectedAsset) {
-        setModels([]);
-        setSelectedModelType('');
-        setSelectedModelId('');
-        return;
-      }
-      try {
-        const tempApiKey = "3369df94-7513-459e-be83-104bdb046b85";
-        const response = await fetch(`${API_BASE_URL}/admin/assets/${selectedAsset}/models`, {
-          headers: { 'Authorization': `Bearer ${tempApiKey}` },
-        });
-        if (!response.ok) throw new Error('Failed to fetch models');
-        const data = await response.json();
-        setModels(data);
-        // Set default selected model type and ID if models are available
-        if (data.length > 0) {
-          const firstModelType = data[0].model_type;
-          setSelectedModelType(firstModelType);
-          const defaultModel = data.find(m => m.model_type === firstModelType);
-          if (defaultModel) {
-            setSelectedModelId(defaultModel.id);
-          }
+    const handlePredict = async () => {
+        setLoading(true);
+        setError(null);
+        setForecastResult(null);
+
+        if (!assets.length) {
+            setError("资产列表未加载，请稍后重试。");
+            setLoading(false);
+            return;
         }
-      } catch (err) {
-        setError(err.message);
-      }
+        if (!selectedAsset) {
+            setError("请选择资产。");
+            setLoading(false);
+            return;
+        }
+        if (!models.length) {
+            setError("模型列表未加载，请稍后重试。");
+            setLoading(false);
+            return;
+        }
+        if (!selectedModelId) {
+            setError("请选择模型。");
+            setLoading(false);
+            return;
+        }
+        if (!forecastHorizon) {
+            setError("请输入预测步长。");
+            setLoading(false);
+            return;
+        }
+
+        let url = '';
+        const options = { method: 'POST' };
+
+        if (dataInputMethod === 'upload') {
+            if (!selectedFile) {
+                setError("Please select a CSV file to upload.");
+                setLoading(false);
+                return;
+            }
+            const formData = new FormData();
+            formData.append('forecast_horizon', forecastHorizon);
+            formData.append('model_id', selectedModelId);
+            formData.append('file', selectedFile);
+            options.body = formData;
+            url = `/assets/${selectedAsset}/predict_from_csv`;
+
+        } else if (dataInputMethod === 's3') {
+            if (!s3DataPath) {
+                setError("Please enter an S3 data path.");
+                setLoading(false);
+                return;
+            }
+            const params = new URLSearchParams({
+                s3_data_path: s3DataPath,
+                forecast_horizon: forecastHorizon,
+                model_id: selectedModelId,
+            });
+            url = `/assets/${selectedAsset}/predict_from_s3?${params.toString()}`;
+        }
+
+        try {
+            const result = await apiClient(url, options);
+
+            const processAndSetChartData = (historical, forecast) => {
+                const historicalData = historical
+                    .filter(d => d.timestamp && d.value != null)
+                    .map(d => ({ x: d.timestamp, y: d.value }));
+
+                const forecastData = forecast.map(d => ({ x: d.timestamp, y: d.predicted_value }));
+
+                setChartData({
+                    datasets: [
+                        {
+                            label: 'Historical Energy',
+                            data: historicalData,
+                            borderColor: '#8884d8',
+                            backgroundColor: '#8884d8',
+                            pointRadius: 0,
+                        },
+                        {
+                            label: 'Forecasted Energy',
+                            data: forecastData,
+                            borderColor: '#82ca9d',
+                            backgroundColor: '#82ca9d',
+                            pointRadius: 0,
+                        }
+                    ]
+                });
+            };
+
+            // Use historical data from API response if available
+            if (result.historical_data && result.historical_data.length > 0) {
+                processAndSetChartData(result.historical_data, result.forecast_data);
+            } else if (dataInputMethod === 'upload' && selectedFile) {
+                // Fallback for CSV upload if backend doesn't return historical data
+                Papa.parse(selectedFile, {
+                    header: true,
+                    dynamicTyping: true,
+                    skipEmptyLines: true,
+                    complete: (parsedResult) => {
+                        if (parsedResult.errors.length) {
+                            setError(`CSV Parsing Error: ${parsedResult.errors[0].message}`);
+                            return;
+                        }
+                        const apiHistorical = parsedResult.data.map(d => ({ ...d, value: d.value ?? d.energy_kwh }));
+                        processAndSetChartData(apiHistorical, result.forecast_data);
+                    },
+                    error: (err) => setError(`CSV Parsing Error: ${err.message}`),
+                });
+            } else {
+                // If no historical data is available at all, just plot the forecast
+                processAndSetChartData([], result.forecast_data);
+            }
+
+        } catch (err) {
+            console.error("Prediction error:", err);
+            setError(`Prediction failed: ${err.message}`);
+        } finally {
+            setLoading(false);
+        }
     };
-    fetchModels();
-  }, [selectedAsset]);
 
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file && file.type === "text/csv") {
-      setSelectedFile(file);
-      setFileName(file.name);
-      setError(null);
-
-      Papa.parse(file, {
-        header: true,
-        step: (results, parser) => {},
-        complete: (results) => {
-          const historical_hours = results.data.length;
-          const max_horizon = Math.floor(historical_hours / 4);
-          setMaxForecastHorizon(max_horizon);
-
-          if (forecastHorizon > max_horizon) {
-            setForecastHorizon(max_horizon);
-          }
+    // chartOptions 定义移到 return 之前
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: {
+                type: 'time',
+                time: {
+                    unit: 'day',
+                    tooltipFormat: 'MMM dd, yyyy HH:mm',
+                },
+                title: {
+                    display: true,
+                    text: 'Timestamp'
+                }
+            },
+            y: {
+                title: {
+                    display: true,
+                    text: 'Energy (kWh)'
+                }
+            }
         },
-      });
-
-    } else {
-      setSelectedFile(null);
-      setFileName('');
-      setMaxForecastHorizon(null);
-      setError('Please select a valid .csv file.');
-    }
-  };
-
-  const handleForecast = async () => {
-    if (!selectedAsset || !selectedFile || !selectedModelId) {
-      setError('Please select an asset, a CSV file, and a model.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const tempApiKey = "3369df94-7513-459e-be83-104bdb046b85";
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('forecast_horizon', forecastHorizon);
-      formData.append('model_id', selectedModelId);
-
-      const response = await fetch(`${API_BASE_URL}/assets/${selectedAsset}/predict_from_csv`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${tempApiKey}` },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Prediction API call failed');
-      }
-
-      const result = await response.json();
-
-      Papa.parse(selectedFile, {
-        header: true,
-        dynamicTyping: true,
-        complete: (parsedResult) => {
-          const historicalData = parsedResult.data
-            .filter(d => d.timestamp && (d.value != null || d.energy_kwh != null))
-            .map(d => ({ x: d.timestamp, y: d.value != null ? d.value : d.energy_kwh }));
-
-          const forecastData = result.forecast_data.map(d => ({ x: d.timestamp, y: d.predicted_value }));
-
-          setChartData({
-            datasets: [
-              {
-                label: 'Historical Energy',
-                data: historicalData,
-                borderColor: '#8884d8',
-                backgroundColor: '#8884d8',
-                pointRadius: 0,
-              },
-              {
-                label: 'Forecasted Energy',
-                data: forecastData,
-                borderColor: '#82ca9d',
-                backgroundColor: '#82ca9d',
-                pointRadius: 0,
-              }
-            ]
-          });
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: 'Energy Consumption Forecast'
+            },
+            zoom: {
+                pan: {
+                    enabled: true,
+                    mode: 'x',
+                },
+                zoom: {
+                    wheel: {
+                        enabled: true,
+                    },
+                    pinch: {
+                        enabled: true
+                    },
+                    mode: 'x',
+                }
+            }
         },
-        error: (err) => setError(`CSV Parsing Error: ${err.message}`),
-      });
+        animation: false,
+    };
 
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    scales: {
-      x: {
-        type: 'time',
-        time: {
-          unit: 'day',
-          tooltipFormat: 'MMM dd, yyyy HH:mm',
-        },
-        title: {
-          display: true,
-          text: 'Timestamp'
-        }
-      },
-      y: {
-        title: {
-          display: true,
-          text: 'Energy (kWh)'
-        }
-      }
-    },
-    plugins: {
-      legend: {
-        position: 'top',
-      },
-      title: {
-        display: true,
-        text: 'Energy Consumption Forecast'
-      },
-      zoom: {
-        pan: {
-          enabled: true,
-          mode: 'x',
-        },
-        zoom: {
-          wheel: {
-            enabled: true,
-          },
-          pinch: {
-            enabled: true
-          },
-          mode: 'x',
-        }
-      }
-    },
-    animation: false,
-  };
+    return (
+        <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
+            <h2>能耗预测</h2>
 
-  const availableModelTypes = [...new Set(models.map(m => m.model_type))];
-  const availableModelVersions = models.filter(m => m.model_type === selectedModelType);
+            <div style={{ marginBottom: '1rem' }}>
+                <label htmlFor="asset-select" style={{ display: 'block', marginBottom: '0.5rem' }}>选择资产:</label>
+                <select
+                    id="asset-select"
+                    value={selectedAsset}
+                    onChange={e => setSelectedAsset(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem' }}
+                >
+                    {assets.map(asset => (
+                        <option key={asset.id} value={asset.id}>{asset.name} ({asset.id})</option>
+                    ))}
+                </select>
+            </div>
 
-  return (
-    <div className="card">
-      <h2>Energy Consumption Forecast</h2>
-      <div className="controls" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-        <select value={selectedAsset} onChange={e => setSelectedAsset(e.target.value)} disabled={loading}>
-          <option value="">Select an Asset</option>
-          {assets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
-        </select>
-        
-        <select value={selectedModelType} onChange={e => setSelectedModelType(e.target.value)} disabled={loading || models.length === 0}>
-          <option value="">Select Model Type</option>
-          {availableModelTypes.map(type => <option key={type} value={type}>{type}</option>)}
-        </select>
+            <div style={{ marginBottom: '1rem' }}>
+                <label htmlFor="model-select" style={{ display: 'block', marginBottom: '0.5rem' }}>选择模型:</label>
+                <select
+                    id="model-select"
+                    value={selectedModelId}
+                    onChange={e => setSelectedModelId(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem' }}
+                >
+                    {models.length === 0 ? (
+                        <option value="">No models available</option>
+                    ) : (
+                        models.map(model => (
+                            <option key={model.id} value={model.id}>
+                                {model.model_type} - {model.model_version} (ID: {model.id})
+                            </option>
+                        ))
+                    )}
+                </select>
+            </div>
 
-        <select value={selectedModelId} onChange={e => setSelectedModelId(parseInt(e.target.value))} disabled={loading || availableModelVersions.length === 0}>
-          <option value="">Select Model Version</option>
-          {availableModelVersions.map(model => <option key={model.id} value={model.id}>{model.model_version} ({model.description || 'No description'})</option>)}
-        </select>
+            <div style={{ marginBottom: '1rem' }}>
+                <label htmlFor="forecast-horizon" style={{ display: 'block', marginBottom: '0.5rem' }}>预测步长 (小时):</label>
+                <input
+                    id="forecast-horizon"
+                    type="number"
+                    value={forecastHorizon}
+                    onChange={e => setForecastHorizon(Math.max(1, parseInt(e.target.value, 10)))}
+                    min="1"
+                    max={maxForecastHorizon || undefined}
+                    style={{ width: '100%', padding: '0.5rem' }}
+                />
+            </div>
 
-        <input 
-          type="file" 
-          id="csv-upload" 
-          accept=".csv"
-          onChange={handleFileChange} 
-          style={{ display: 'none' }}
-          disabled={loading}
-        />
-        <label htmlFor="csv-upload" className="button" style={{ cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1 }}>
-          {fileName || 'Select CSV File'}
-        </label>
+            <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem' }}>数据输入方式:</label>
+                <input
+                    type="radio"
+                    id="upload-radio"
+                    name="dataInputMethod"
+                    value="upload"
+                    checked={dataInputMethod === 'upload'}
+                    onChange={() => setDataInputMethod('upload')}
+                />
+                <label htmlFor="upload-radio" style={{ marginRight: '1rem' }}>上传 CSV 文件</label>
+                <input
+                    type="radio"
+                    id="s3-radio"
+                    name="dataInputMethod"
+                    value="s3"
+                    checked={dataInputMethod === 's3'}
+                    onChange={() => setDataInputMethod('s3')}
+                />
+                <label htmlFor="s3-radio">S3 路径</label>
+            </div>
 
-        <div>
-          <input
-            type="number"
-            value={forecastHorizon}
-            onChange={(e) => setForecastHorizon(parseInt(e.target.value, 10))}
-            placeholder="Forecast Hours"
-            disabled={loading || !selectedFile}
-            max={maxForecastHorizon}
-            style={{ width: '120px' }}
-          />
-          {maxForecastHorizon && <small style={{ display: 'block', marginTop: '5px' }}>Max: {maxForecastHorizon} hours</small>}
+            {dataInputMethod === 'upload' && (
+                <div style={{ marginBottom: '1rem' }}>
+                    <label htmlFor="csv-upload" style={{ display: 'block', marginBottom: '0.5rem' }}>上传历史数据 CSV:</label>
+                    <input
+                        id="csv-upload"
+                        type="file"
+                        accept=".csv"
+                        onChange={handleFileChange}
+                        style={{ width: '100%', padding: '0.5rem' }}
+                    />
+                </div>
+            )}
+
+            {dataInputMethod === 's3' && (
+                <div style={{ marginBottom: '1rem' }}>
+                    <label htmlFor="s3-data-path" style={{ display: 'block', marginBottom: '0.5rem' }}>S3 数据路径 (Key):</label>
+                    <input
+                        id="s3-data-path"
+                        type="text"
+                        value={s3DataPath}
+                        onChange={e => setS3DataPath(e.target.value)}
+                        placeholder="e.g., historical-data/asset_a_history.csv"
+                        style={{ width: '100%', padding: '0.5rem' }}
+                    />
+                </div>
+            )}
+
+            <button onClick={handlePredict}
+                disabled={loading || !assets.length || !models.length}
+                style={{ padding: '0.75rem', cursor: 'pointer' }}>
+                {loading ? '预测中...' : '开始预测'}
+            </button>
+
+            {error && <p style={{ color: 'red', marginTop: '1rem' }}>错误: {error}</p>}
+
+            <div style={{ position: 'relative', width: '100%', height: '400px', marginTop: '20px' }}>
+                <Line ref={chartRef} options={chartOptions} data={chartData} />
+            </div>
         </div>
-
-        <button onClick={handleForecast} disabled={loading || !selectedFile || !selectedModelId}>
-          {loading ? 'Generating...' : 'Start Forecast'}
-        </button>
-        <button onClick={() => chartRef.current?.resetZoom()} disabled={loading}>
-          Reset Zoom
-        </button>
-      </div>
-
-      {error && <p className="error">Error: {error}</p>}
-
-      <div style={{ position: 'relative', width: '100%', height: '400px', marginTop: '20px' }}>
-        <Line ref={chartRef} options={chartOptions} data={chartData} />
-      </div>
-    </div>
-  );
+    );
 }
 
 export default ForecastView;

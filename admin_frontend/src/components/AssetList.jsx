@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import apiClient from '../apiClient';
 
 function AssetList() {
   const [assets, setAssets] = useState([]);
@@ -8,12 +9,7 @@ function AssetList() {
   useEffect(() => {
     const fetchAssets = async () => {
       try {
-        // 注意：这里直接调用本地后端API
-        const response = await fetch('http://127.0.0.1:8000/admin/assets');
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
+        const data = await apiClient('/admin/assets');
         setAssets(data);
       } catch (error) {
         console.error("Error fetching assets:", error);
@@ -24,29 +20,29 @@ function AssetList() {
     };
 
     fetchAssets();
-  }, []); // 空依赖数组表示只在组件挂载时运行一次
+  }, []); // Empty dependency array means this runs once on mount
 
   if (loading) {
-    return <div className="loading-message">加载资产中...</div>;
+    return <div className="loading-message">Loading Assets...</div>;
   }
 
   if (error) {
-    return <div className="error-message">加载资产失败: {error.message}</div>;
+    return <div className="error-message">Failed to load assets: {error.message}</div>;
   }
 
   return (
     <div>
-      <h2>资产列表</h2>
+      <h2>Asset List</h2>
       {assets.length === 0 ? (
-        <p>没有找到任何资产。</p>
+        <p>No assets found.</p>
       ) : (
         <ul>
           {assets.map(asset => (
             <li key={asset.id}>
               <span>ID: {asset.id}</span>
-              <span>名称: {asset.name}</span>
-              <span>描述: {asset.description || '无'}</span>
-              {/* 未来可以添加编辑/删除按钮 */}
+              <span>Name: {asset.name}</span>
+              <span>Description: {asset.description || 'None'}</span>
+              {/* Future functionality: Edit/Delete buttons */}
             </li>
           ))}
         </ul>
