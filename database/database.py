@@ -39,6 +39,7 @@ class Model(Base):
     scaler_path = Column(Text, nullable=True, comment="值缩放器文件在S3中的路径 (key)")
     scaler_cov_path = Column(Text, nullable=True, comment="协变量缩放器文件在S3中的路径 (key)")
     scaler_past_cov_path = Column(Text, nullable=True, comment="过去协变量缩放器文件在S3中的路径 (key)")
+    detector_path = Column(Text, nullable=True, comment="异常检测器文件在S3中的路径 (key)")
     
     # --- NEW: Traceability ---
     training_data_path = Column(Text, nullable=True, comment="训练数据在S3中的路径 (key)")

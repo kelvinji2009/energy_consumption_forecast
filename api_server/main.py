@@ -27,7 +27,7 @@ from darts import TimeSeries
 from darts.dataprocessing.transformers import Scaler
 from darts.models import LightGBMModel, TiDEModel, RNNModel, TFTModel # Import all models
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
-from darts.ad.detectors import QuantileDetector
+from core.training_service import detect_anomalies as run_anomaly_detection
 
 print("--- Script main.py starting to execute (Ultimate Compatibility Version) ---")
 
@@ -73,11 +73,12 @@ class AnomalyDetectionRequest(BaseModel):
 class AnomalyDataPoint(BaseModel):
     timestamp: datetime
     value: float
-    reason: str
 
 class AnomalyDetectionResponse(BaseModel):
     asset_id: str
     anomalies: List[AnomalyDataPoint]
+    historical_data: Optional[List[TimeSeriesDataPoint]] = None
+
 
 class ModelInfo(BaseModel):
     id: int
@@ -186,64 +187,65 @@ def predict(asset_id: str, request: PredictionRequest, http_request: Request):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
-@app.post("/assets/{asset_id}/detect_anomalies", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
-def detect_anomalies(asset_id: str, request: AnomalyDetectionRequest, http_request: Request):
-    print(f"\n--- Received anomaly detection request for asset: {asset_id} ---")
-    model_cache_entry = http_request.app.state.model_cache.get(asset_id)
-    if not (model_cache_entry and model_cache_entry.get('model') and model_cache_entry.get('detector')):
-        raise HTTPException(status_code=503, detail=f"Model or detector not available for asset '{asset_id}'.")
-        
-    model, detector, scaler = model_cache_entry['model'], model_cache_entry['detector'], model_cache_entry.get('scaler')
-    
-    try:
-        series_to_detect = _create_timeseries_from_request(request.data_stream)
-        input_chunk_length = len(model.lags['target'])
-        
-        if len(series_to_detect) <= input_chunk_length:
-             raise ValueError(f"Data stream length must be > model's required input length ({input_chunk_length}).")
-
-        series_scaled = scaler.transform(series_to_detect) if scaler else series_to_detect
-        
-        full_covariates = datetime_attribute_timeseries(series_scaled, "hour", True).stack(datetime_attribute_timeseries(series_scaled, "day_of_week", True)).astype(np.float32)
-        
-        historical_forecasts_scaled = model.historical_forecasts(series=series_scaled, future_covariates=full_covariates, start=input_chunk_length, forecast_horizon=1, stride=1, retrain=False, verbose=False)
-        
-        actual_values_aligned = series_scaled.slice_intersect(historical_forecasts_scaled)
-        residuals_scaled = actual_values_aligned - historical_forecasts_scaled
-        residuals_ts = TimeSeries.from_series(pd.Series(np.abs(residuals_scaled.values().flatten()), index=residuals_scaled.time_index), freq='h')
-        
-        anomalies_ts = detector.detect(residuals_ts)
-        print("Anomaly detection successful.")
-        
-        # Bulletproof Series creation and filtering
-        anomalies_series = pd.Series(anomalies_ts.values().flatten(), index=anomalies_ts.time_index)
-        anomaly_timestamps = anomalies_series[anomalies_series == 1].index
-        
-        anomalies_list = []
-        if not anomaly_timestamps.empty:
-            historical_forecasts_unscaled = scaler.inverse_transform(historical_forecasts_scaled) if scaler else historical_forecasts_scaled
-            
-            original_values_series = pd.Series(series_to_detect.values().flatten(), index=series_to_detect.time_index)
-            predicted_values_series = pd.Series(historical_forecasts_unscaled.values().flatten(), index=historical_forecasts_unscaled.time_index)
-
-            for ts in anomaly_timestamps:
-                original_value = original_values_series.get(ts)
-                predicted_value = predicted_values_series.get(ts)
-                if original_value is not None and predicted_value is not None:
-                    reason = (f"Value ({original_value:.2f}) is significantly higher than predicted ({predicted_value:.2f})." if original_value > predicted_value else f"Value ({original_value:.2f}) is significantly lower than predicted ({predicted_value:.2f}).")
-                    anomalies_list.append(AnomalyDataPoint(timestamp=ts, value=original_value, reason=reason))
-        
-        print(f"Found {len(anomalies_list)} anomalies.")
-        return AnomalyDetectionResponse(asset_id=asset_id, anomalies=anomalies_list)
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
+# @app.post("/assets/{asset_id}/detect_anomalies", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
+# def detect_anomalies(asset_id: str, request: AnomalyDetectionRequest, http_request: Request):
+#     print(f"\n--- Received anomaly detection request for asset: {asset_id} ---")
+#     model_cache_entry = http_request.app.state.model_cache.get(asset_id)
+#     if not (model_cache_entry and model_cache_entry.get('model') and model_cache_entry.get('detector')):
+#         raise HTTPException(status_code=503, detail=f"Model or detector not available for asset '{asset_id}'.")
+#         
+#     model, detector, scaler = model_cache_entry['model'], model_cache_entry['detector'], model_cache_entry.get('scaler')
+#     
+#     try:
+#         series_to_detect = _create_timeseries_from_request(request.data_stream)
+#         input_chunk_length = len(model.lags['target'])
+#         
+#         if len(series_to_detect) <= input_chunk_length:
+#              raise ValueError(f"Data stream length must be > model's required input length ({input_chunk_length}).")
+#
+#         series_scaled = scaler.transform(series_to_detect) if scaler else series_to_detect
+#         
+#         full_covariates = datetime_attribute_timeseries(series_scaled, "hour", True).stack(datetime_attribute_timeseries(series_scaled, "day_of_week", True)).astype(np.float32)
+#         
+#         historical_forecasts_scaled = model.historical_forecasts(series=series_scaled, future_covariates=full_covariates, start=input_chunk_length, forecast_horizon=1, stride=1, retrain=False, verbose=False)
+#         
+#         actual_values_aligned = series_scaled.slice_intersect(historical_forecasts_scaled)
+#         residuals_scaled = actual_values_aligned - historical_forecasts_scaled
+#         residuals_ts = TimeSeries.from_series(pd.Series(np.abs(residuals_scaled.values().flatten()), index=residuals_scaled.time_index), freq='h')
+#         
+#         anomalies_ts = detector.detect(residuals_ts)
+#         print("Anomaly detection successful.")
+#         
+#         # Bulletproof Series creation and filtering
+#         anomalies_series = pd.Series(anomalies_ts.values().flatten(), index=anomalies_ts.time_index)
+#         anomaly_timestamps = anomalies_series[anomalies_series == 1].index
+#         
+#         anomalies_list = []
+#         if not anomaly_timestamps.empty:
+#             historical_forecasts_unscaled = scaler.inverse_transform(historical_forecasts_scaled) if scaler else historical_forecasts_scaled
+#             
+#             original_values_series = pd.Series(series_to_detect.values().flatten(), index=series_to_detect.time_index)
+#             predicted_values_series = pd.Series(historical_forecasts_unscaled.values().flatten(), index=historical_forecasts_unscaled.time_index)
+#
+#             for ts in anomaly_timestamps:
+#                 original_value = original_values_series.get(ts)
+#                 predicted_value = predicted_values_series.get(ts)
+#                 if original_value is not None and predicted_value is not None:
+#                     reason = (f"Value ({original_value:.2f}) is significantly higher than predicted ({predicted_value:.2f})." if original_value > predicted_value else f"Value ({original_value:.2f}) is significantly lower than predicted ({predicted_value:.2f}).")
+#                     anomalies_list.append(AnomalyDataPoint(timestamp=ts, value=original_value, reason=reason))
+#         
+#         print(f"Found {len(anomalies_list)} anomalies.")
+#         return AnomalyDetectionResponse(asset_id=asset_id, anomalies=anomalies_list)
+#         
+#     except Exception as e:
+#         import traceback
+#         traceback.print_exc()
+#         raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
 
 @app.post("/assets/{asset_id}/predict_from_csv", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
 async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), forecast_horizon: int = Form(168), model_id: int = Form(...), db: Session = Depends(get_db)):
-    print(f"\n--- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} using model ID: {model_id} ---")
+    print(f"""
+    --- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} using model ID: {model_id} ---""")
     
     # 0. Fetch model metadata from DB first
     model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
@@ -266,12 +268,14 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
             scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
             scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
             scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client) # Load past_cov_scaler
+            detector_obj = _load_artifact_from_s3(model_record.detector_path, s3_client) # Load detector
             
             model_cache[model_key] = {
                 'model': model_obj,
                 'scaler': scaler_obj,
                 'scaler_cov': scaler_cov_obj,
-                'scaler_past_cov': scaler_past_cov_obj # Store past_cov_scaler
+                'scaler_past_cov': scaler_past_cov_obj, # Store past_cov_scaler
+                'detector': detector_obj # Store detector
             }
             print(f"[Cache] Model ID {model_id} loaded into cache.")
         except Exception as e:
@@ -354,6 +358,94 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
+@app.post("/assets/{asset_id}/detect_anomalies_from_csv", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
+async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), model_id: int = Form(...), db: Session = Depends(get_db)):
+    print(f'\n--- Received anomaly detection request for asset: {asset_id} from CSV using model ID: {model_id} ---')
+    
+    model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
+    if not model_record:
+        raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
+    if not model_record.detector_path:
+        raise HTTPException(status_code=400, detail=f"Model with ID {model_id} does not have an anomaly detector.")
+
+    model_cache = http_request.app.state.model_cache
+    model_key = f"model_{model_id}"
+
+    if model_key not in model_cache:
+        try:
+            s3_client = get_s3_client()
+            model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+            scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
+            scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
+            scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client)
+            detector_obj = _load_artifact_from_s3(model_record.detector_path, s3_client)
+            
+            model_cache[model_key] = {
+                'model': model_obj,
+                'scaler': scaler_obj,
+                'scaler_cov': scaler_cov_obj,
+                'scaler_past_cov': scaler_past_cov_obj,
+                'detector': detector_obj
+            }
+            print(f"[Cache] Model ID {model_id} and detector loaded into cache.")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load model artifacts for ID {model_id}: {e}")
+    
+    model_artifacts = model_cache[model_key]
+    model = model_artifacts['model']
+    detector = model_artifacts.get('detector')
+    scaler = model_artifacts.get('scaler')
+    scaler_cov = model_artifacts.get('scaler_cov')
+    scaler_past_cov = model_artifacts.get('scaler_past_cov')
+
+    try:
+        contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+        df.rename(columns={'energy_kwh': 'value'}, inplace=True)
+        if 'timestamp' not in df.columns or 'value' not in df.columns:
+            raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
+        
+        historical_data = [TimeSeriesDataPoint(**row) for index, row in df.iterrows()]
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing CSV file: {e}")
+
+    try:
+        series = _create_timeseries_from_request(historical_data)
+        series_scaled = scaler.transform(series) if scaler else series
+
+        past_covs = None
+        if model_record.model_type == "TFT":
+            past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
+            past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
+            past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", ['production_units', 'temperature_celsius', 'humidity_percent'], freq='h').astype(np.float32)
+            past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
+
+        future_covs = None
+        if model_record.model_type in ["TFT", "TiDE", "LSTM", "LightGBM"]:
+            future_covs_raw = datetime_attribute_timeseries(series_scaled, attribute="hour", one_hot=True).stack(
+                datetime_attribute_timeseries(series_scaled, attribute="day_of_week", one_hot=True)
+            ).astype(np.float32)
+            future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
+
+        anomalies_df = run_anomaly_detection(
+            model=model,
+            detector=detector,
+            series=series_scaled,
+            past_covariates=past_covs,
+            future_covariates=future_covs,
+            scaler=scaler
+        )
+        
+        anomalies_data = [AnomalyDataPoint(timestamp=ts, value=row['value']) for ts, row in anomalies_df.iterrows()]
+        
+        return AnomalyDetectionResponse(asset_id=asset_id, anomalies=anomalies_data, historical_data=historical_data)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
+
 @app.post("/assets/{asset_id}/predict_from_s3", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
 async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: str = Query(...), forecast_horizon: int = Query(168), model_id: int = Query(...), db: Session = Depends(get_db)):
     print(f"\n--- Received prediction request for asset: {asset_id} from S3 path: {s3_data_path} with horizon: {forecast_horizon} using model ID: {model_id} ---")
@@ -378,12 +470,14 @@ async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: st
             scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
             scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
             scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client)
+            detector_obj = _load_artifact_from_s3(model_record.detector_path, s3_client) # Load detector
             
             model_cache[model_key] = {
                 'model': model_obj,
                 'scaler': scaler_obj,
                 'scaler_cov': scaler_cov_obj,
-                'scaler_past_cov': scaler_past_cov_obj
+                'scaler_past_cov': scaler_past_cov_obj,
+                'detector': detector_obj # Store detector
             }
             print(f"[Cache] Model ID {model_id} loaded into cache.")
         except Exception as e:
@@ -461,5 +555,95 @@ async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: st
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
+
+@app.post("/assets/{asset_id}/detect_anomalies_from_s3", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
+async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data_path: str = Query(...), model_id: int = Query(...), db: Session = Depends(get_db)):
+    print(f'\n--- Received anomaly detection request for asset: {asset_id} from S3 path: {s3_data_path} using model ID: {model_id} ---')
+
+    model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
+    if not model_record:
+        raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
+    if not model_record.detector_path:
+        raise HTTPException(status_code=400, detail=f"Model with ID {model_id} does not have an anomaly detector.")
+
+    model_cache = http_request.app.state.model_cache
+    model_key = f"model_{model_id}"
+
+    if model_key not in model_cache:
+        try:
+            s3_client = get_s3_client()
+            model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+            scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
+            scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
+            scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client)
+            detector_obj = _load_artifact_from_s3(model_record.detector_path, s3_client)
+            
+            model_cache[model_key] = {
+                'model': model_obj,
+                'scaler': scaler_obj,
+                'scaler_cov': scaler_cov_obj,
+                'scaler_past_cov': scaler_past_cov_obj,
+                'detector': detector_obj
+            }
+            print(f"[Cache] Model ID {model_id} and detector loaded into cache.")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load model artifacts for ID {model_id}: {e}")
+    
+    model_artifacts = model_cache[model_key]
+    model = model_artifacts['model']
+    detector = model_artifacts.get('detector')
+    scaler = model_artifacts.get('scaler')
+    scaler_cov = model_artifacts.get('scaler_cov')
+    scaler_past_cov = model_artifacts.get('scaler_past_cov')
+
+    try:
+        s3_client = get_s3_client()
+        response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_data_path)
+        contents = response['Body'].read()
+        df = pd.read_csv(io.BytesIO(contents))
+        df.rename(columns={'energy_kwh': 'value'}, inplace=True)
+        if 'timestamp' not in df.columns or 'value' not in df.columns:
+            raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
+        
+        historical_data = [TimeSeriesDataPoint(**row) for index, row in df.iterrows()]
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error processing CSV file from S3: {e}")
+
+    try:
+        series = _create_timeseries_from_request(historical_data)
+        series_scaled = scaler.transform(series) if scaler else series
+
+        past_covs = None
+        if model_record.model_type == "TFT":
+            past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
+            past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
+            past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", ['production_units', 'temperature_celsius', 'humidity_percent'], freq='h').astype(np.float32)
+            past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
+
+        future_covs = None
+        if model_record.model_type in ["TFT", "TiDE", "LSTM", "LightGBM"]:
+            future_covs_raw = datetime_attribute_timeseries(series_scaled, attribute="hour", one_hot=True).stack(
+                datetime_attribute_timeseries(series_scaled, attribute="day_of_week", one_hot=True)
+            ).astype(np.float32)
+            future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
+
+        anomalies_df = run_anomaly_detection(
+            model=model,
+            detector=detector,
+            series=series_scaled,
+            past_covariates=past_covs,
+            future_covariates=future_covs,
+            scaler=scaler
+        )
+        
+        anomalies_data = [AnomalyDataPoint(timestamp=ts, value=row['value']) for ts, row in anomalies_df.iterrows()]
+        
+        return AnomalyDetectionResponse(asset_id=asset_id, anomalies=anomalies_data, historical_data=historical_data)
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
 
 print("--- Script main.py finished execution ---")

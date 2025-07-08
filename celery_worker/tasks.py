@@ -11,9 +11,12 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 
 from celery_worker.celery_app import celery_app
+from darts.utils.timeseries_generation import datetime_attribute_timeseries
 from database.database import engine, Model
 from sqlalchemy.orm import sessionmaker
-from core.training_service import train_model
+from core.training_service import train_model, fit_anomaly_detector
+from darts import TimeSeries
+import numpy as np
 
 # --- S3/MinIO Configuration ---
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
@@ -73,16 +76,54 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
             model, scaler_target, scaler_cov, metrics = train_model(model_type=model_type, data=df, n_epochs=n_epochs)
             scaler_past_cov = None # Ensure it's None if not TFT
 
-        # 4. Upload model and scalers to S3
+        # 4. Fit anomaly detector
+        print(f"[Task {task_id}] Fitting anomaly detector...")
+        
+        # We need to reconstruct the TimeSeries objects for the detector fitting
+        series_target = TimeSeries.from_series(df['energy_kwh'], freq='H').astype(np.float32)
+        
+        # Reconstruct covariates based on model type
+        past_covariates = None
+        future_covariates = None
+
+        if model_type in ["TFT", "TiDE", "LSTM", "LightGBM"]:
+             future_covariates = datetime_attribute_timeseries(series_target, attribute="hour", one_hot=True).stack(
+                datetime_attribute_timeseries(series_target, attribute="day_of_week", one_hot=True)
+            ).astype(np.float32)
+
+        if model_type == "TFT":
+            past_covariates = TimeSeries.from_dataframe(df, value_cols=['production_units', 'temperature_celsius', 'humidity_percent'], freq='H').astype(np.float32)
+
+        # Scale the series and covariates for detector fitting
+        series_target_scaled = scaler_target.transform(series_target)
+        past_covariates_scaled = scaler_past_cov.transform(past_covariates) if scaler_past_cov and past_covariates else None
+        future_covariates_scaled = scaler_cov.transform(future_covariates) if scaler_cov and future_covariates else None
+
+        detector = fit_anomaly_detector(
+            model=model,
+            series=series_target_scaled,
+            past_covariates=past_covariates_scaled,
+            future_covariates=future_covariates_scaled,
+            scaler=scaler_target # Pass the scaler to inverse transform inside
+        )
+        print(f"[Task {task_id}] Anomaly detector fitted successfully.")
+
+        # 5. Upload model, scalers, and detector to S3
         model_version = datetime.now().strftime("%Y%m%d%H%M%S")
         s3_prefix = f"{asset_id}/{model_id}_{model_version}"
         
         model_key = f"{s3_prefix}/model.joblib"
         scaler_target_key = f"{s3_prefix}/scaler_target.joblib"
         scaler_cov_key = f"{s3_prefix}/scaler_cov.joblib"
+        detector_key = f"{s3_prefix}/detector.joblib" # New detector key
         scaler_past_cov_key = f"{s3_prefix}/scaler_past_cov.joblib" if scaler_past_cov else None
 
-        artifacts_to_upload = [(model_key, model), (scaler_target_key, scaler_target), (scaler_cov_key, scaler_cov)]
+        artifacts_to_upload = [
+            (model_key, model), 
+            (scaler_target_key, scaler_target), 
+            (scaler_cov_key, scaler_cov),
+            (detector_key, detector) # Add detector to upload list
+        ]
         if scaler_past_cov_key:
             artifacts_to_upload.append((scaler_past_cov_key, scaler_past_cov))
 
@@ -93,13 +134,14 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
                 s3_client.put_object(Bucket=S3_BUCKET_NAME, Key=key, Body=buffer)
             print(f"[Task {task_id}] Uploaded artifact to s3://{S3_BUCKET_NAME}/{key}")
 
-        # 5. Update database with final status and paths
+        # 6. Update database with final status and paths
         update_values = {
             "status": "COMPLETED",
             "model_version": model_version,
             "model_path": model_key,
             "scaler_path": scaler_target_key,
             "scaler_cov_path": scaler_cov_key,
+            "detector_path": detector_key, # Add detector path to DB
             "training_data_path": s3_data_path,
             "metrics": metrics,
             "description": f"{model_type} model trained on {datetime.now().strftime('%Y-%m-%d')}"

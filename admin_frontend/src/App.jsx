@@ -5,6 +5,7 @@ import ModelList from './components/ModelList';
 import ApiKeyList from './components/ApiKeyList';
 import ForecastView from './components/ForecastView';
 import ModelTraining from './components/ModelTraining';
+import AnomalyDetectionView from './components/AnomalyDetectionView';
 import './App.css';
 
 const API_KEY_STORAGE_KEY = 'app-api-key';
@@ -39,6 +40,9 @@ function App() {
                 <Link to="/forecast" style={{ color: '#61dafb', textDecoration: 'none' }}>能耗预测</Link>
               </li>
               <li style={{ margin: '0 15px' }}>
+                <Link to="/anomaly-detection" style={{ color: '#61dafb', textDecoration: 'none' }}>异常检测</Link>
+              </li>
+              <li style={{ margin: '0 15px' }}>
                 <Link to="/training" style={{ color: '#61dafb', textDecoration: 'none' }}>模型训练</Link>
               </li>
               <li style={{ margin: '0 15px' }}>
@@ -69,6 +73,7 @@ function App() {
             <Routes>
               <Route path="/" element={<h2>欢迎来到管理面板</h2>} />
               <Route path="/forecast" element={<ForecastView />} />
+              <Route path="/anomaly-detection" element={<AnomalyDetectionView />} />
               <Route path="/training" element={<ModelTraining />} />
               <Route path="/assets" element={<AssetList />} />
               <Route path="/models" element={<ModelList />} />

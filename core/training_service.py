@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 import joblib
@@ -10,6 +9,7 @@ from darts.models import LightGBMModel, TiDEModel, RNNModel, TFTModel
 from darts.models.forecasting.forecasting_model import ForecastingModel
 from darts.metrics import mape
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
+from darts.ad import QuantileDetector
 
 # For reproducibility
 np.random.seed(42)
@@ -319,3 +319,101 @@ def train_model(
             output_chunk_length=output_chunk_length,
             n_epochs=n_epochs
         )
+
+# --- Anomaly Detection Service ---
+
+from darts.ad import QuantileDetector
+
+def fit_anomaly_detector(
+    model: ForecastingModel,
+    series: TimeSeries,
+    past_covariates: TimeSeries = None,
+    future_covariates: TimeSeries = None,
+    scaler: Scaler = None,
+    high_quantile: float = 0.98
+) -> QuantileDetector:
+    """
+    Fits a QuantileDetector on the residuals of a model's historical forecasts.
+    """
+    print("--- Fitting Anomaly Detector ---")
+    
+    # Generate historical forecasts
+    historical_forecasts_scaled = model.historical_forecasts(
+        series,
+        past_covariates=past_covariates,
+        future_covariates=future_covariates,
+        start=0.1,
+        forecast_horizon=1,
+        stride=1,
+        retrain=False,
+        verbose=True
+    )
+    
+    # Inverse transform forecasts to get actual values
+    if scaler:
+        historical_forecasts = scaler.inverse_transform(historical_forecasts_scaled)
+    else:
+        historical_forecasts = historical_forecasts_scaled
+
+    # Align the original series with the forecasts
+    original_series_aligned = series.slice_intersect(historical_forecasts)
+    historical_forecasts_aligned = historical_forecasts.slice_intersect(series)
+
+    # Calculate absolute residuals
+    residuals = (original_series_aligned - historical_forecasts_aligned).map(np.abs)
+    
+    # Fit the detector
+    detector = QuantileDetector(high_quantile=high_quantile)
+    detector.fit(residuals)
+    
+    
+    return detector
+
+def detect_anomalies(
+    model: ForecastingModel,
+    detector: QuantileDetector,
+    series: TimeSeries,
+    past_covariates: TimeSeries = None,
+    future_covariates: TimeSeries = None,
+    scaler: Scaler = None
+) -> pd.DataFrame:
+    """
+    Detects anomalies in a new series using a pre-fitted model and detector.
+    """
+    print("--- Detecting Anomalies ---")
+    
+    # Generate historical forecasts for the new data
+    historical_forecasts_scaled = model.historical_forecasts(
+        series,
+        past_covariates=past_covariates,
+        future_covariates=future_covariates,
+        start=0.1,
+        forecast_horizon=1,
+        stride=1,
+        retrain=False,
+        verbose=True
+    )
+    
+    # Inverse transform forecasts
+    if scaler:
+        historical_forecasts = scaler.inverse_transform(historical_forecasts_scaled)
+    else:
+        historical_forecasts = historical_forecasts_scaled
+
+    # Align series and forecasts
+    original_series_aligned = series.slice_intersect(historical_forecasts)
+    historical_forecasts_aligned = historical_forecasts.slice_intersect(series)
+    
+    # Calculate absolute residuals
+    residuals = (original_series_aligned - historical_forecasts_aligned).map(np.abs)
+    
+    # Detect anomalies
+    anomaly_scores = detector.detect(residuals)
+    
+    # Filter for actual anomalies (where score is 1)
+    anomalies = original_series_aligned[anomaly_scores.pd_series() == 1]
+    
+    print(f"--- Found {len(anomalies)} anomalies. ---")
+    
+    # Return as a DataFrame
+    return anomalies.pd_dataframe()
