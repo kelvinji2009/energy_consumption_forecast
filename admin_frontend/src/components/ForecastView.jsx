@@ -68,14 +68,20 @@ function ForecastView() {
         if (selectedAsset) {
             setLoading(true);
             setError(null);
+            setModels([]); // Clear previous models
+            setSelectedModelId(''); // Reset selection
             const fetchModels = async () => {
                 try {
-                    const data = await apiClient(`/admin/models?asset_id=${selectedAsset}&status=COMPLETED`);
+                    const data = await apiClient(`/admin/models?asset_id=${selectedAsset}`);
                     // Sort models by creation date (newest first)
-                    const sortedModels = data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    const sortedModels = data
+                        .filter(m => m.status === 'COMPLETED')
+                        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    
                     setModels(sortedModels);
                     if (sortedModels.length > 0) {
-                        setSelectedModelId(prev => prev || sortedModels[0].id); // 只在未选中时赋值
+                        // Always set to the newest model of the *new* asset
+                        setSelectedModelId(sortedModels[0].id);
                     }
                 } catch (err) {
                     console.error("Failed to fetch models:", err);

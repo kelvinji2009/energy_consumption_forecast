@@ -64,14 +64,19 @@ function AnomalyDetectionView() {
         if (selectedAsset) {
             setLoading(true);
             setError(null);
+            setModels([]); // Clear previous models
+            setSelectedModelId(''); // Reset selection
             const fetchModels = async () => {
                 try {
-                    const data = await apiClient(`/admin/models?asset_id=${selectedAsset}&status=COMPLETED`);
-                    const modelsWithDetectors = data.filter(m => m.detector_path);
+                    const data = await apiClient(`/admin/models?asset_id=${selectedAsset}`);
+                    const modelsWithDetectors = data
+                        .filter(m => m.status === 'COMPLETED' && m.detector_path);
                     const sortedModels = modelsWithDetectors.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                    
                     setModels(sortedModels);
                     if (sortedModels.length > 0) {
-                        setSelectedModelId(prev => prev || sortedModels[0].id);
+                        // Always set to the newest model of the *new* asset
+                        setSelectedModelId(sortedModels[0].id);
                     } else {
                         setError("No models with anomaly detectors found for this asset.");
                     }
