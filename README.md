@@ -34,19 +34,19 @@
 ```mermaid
 graph TD
     subgraph "用户端"
-        User[👨‍💻 用户/管理员]
+        User["👨‍💻 用户/管理员"]
     end
 
     subgraph "应用服务 (Docker Compose)"
-        Frontend[🌐 React 前端<br>(Nginx/Vite)]
-        API[🚀 FastAPI 后端 API]
-        Worker[👷 Celery Worker]
+        Frontend["🌐 React 前端<br>(Nginx/Vite)"]
+        API["🚀 FastAPI 后端 API"]
+        Worker["👷 Celery Worker"]
     end
 
     subgraph "基础设施 (Docker Compose)"
-        DB[(🐘 PostgreSQL)]
-        Cache[(⚡ Redis)]
-        S3[📦 MinIO/S3]
+        DB[("🐘 PostgreSQL")]
+        Cache[("⚡ Redis")]
+        S3["📦 MinIO/S3"]
     end
 
     User -- "访问/操作" --> Frontend
