@@ -411,9 +411,22 @@ def detect_anomalies(
     anomaly_scores = detector.detect(residuals)
     
     # Filter for actual anomalies (where score is 1)
-    anomalies = original_series_aligned[anomaly_scores.pd_series() == 1]
+    # Convert original_series_aligned to pandas Series for flexible indexing
+    original_series_pd = original_series_aligned.pd_series()
     
-    print(f"--- Found {len(anomalies)} anomalies. ---")
+    # Align anomaly_scores index with original_series_aligned before filtering
+    aligned_anomaly_scores = anomaly_scores.pd_series().reindex(original_series_pd.index, fill_value=0)
     
-    # Return as a DataFrame
-    return anomalies.pd_dataframe()
+    # Apply boolean mask using pandas indexing
+    anomalies_pd = original_series_pd[aligned_anomaly_scores == 1]
+    
+    # Convert back to Darts TimeSeries, explicitly setting frequency
+    anomalies = TimeSeries.from_series(anomalies_pd, freq='H', fill_missing_dates=True)
+    
+    print(f"--- Found {len(anomalies_pd)} anomalies. ---")
+    
+    # Return as a DataFrame directly, formatted for frontend
+    anomalies_df = anomalies_pd.to_frame(name='value') # Rename the column to 'value'
+    anomalies_df = anomalies_df.reset_index() # Convert index (timestamp) to a column
+    anomalies_df = anomalies_df.rename(columns={'time': 'timestamp'}) # Rename the timestamp column
+    return anomalies_df

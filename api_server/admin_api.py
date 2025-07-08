@@ -44,7 +44,8 @@ class ModelResponse(ModelBase):
     status: str
     model_path: Optional[str] = None
     scaler_path: Optional[str] = None
-    scaler_cov_path: Optional[str] = None
+    scaler_past_cov_path: Optional[str] = None
+    detector_path: Optional[str] = None
     training_data_path: Optional[str] = None
     is_active: bool
     created_at: datetime
