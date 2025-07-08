@@ -2,10 +2,11 @@
 import os
 import uuid
 import bcrypt
+import boto3
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -14,8 +15,24 @@ import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
 from database.database import Asset, Model, ApiKey
-from celery_worker.tasks import train_model_task # UPDATED: Import new task
-from api_server.dependencies import verify_api_key # Import verify_api_key
+from celery_worker.tasks import train_model_task
+from api_server.dependencies import verify_api_key
+
+# --- S3/MinIO Configuration ---
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL")
+S3_ACCESS_KEY_ID = os.getenv("S3_ACCESS_KEY_ID")
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
+S3_BUCKET_NAME = "models"
+S3_TRAINING_DATA_FOLDER = "training-data"
+
+def get_s3_client():
+    """Creates a boto3 S3 client."""
+    return boto3.client(
+        's3',
+        endpoint_url=S3_ENDPOINT_URL,
+        aws_access_key_id=S3_ACCESS_KEY_ID,
+        aws_secret_access_key=S3_SECRET_ACCESS_KEY
+    )
 
 # --- Pydantic Models for Admin API ---
 
@@ -83,8 +100,18 @@ class TrainingJobResponse(BaseModel):
     asset_id: str
     status: str
 
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    result: Optional[dict] = None
+
+# --- Celery App import for task status ---
+from celery_worker.celery_app import celery_app
+from celery.result import AsyncResult
+
 # --- Admin API Router ---
 router = APIRouter(prefix="/admin", tags=["Admin Operations"], dependencies=[Depends(verify_api_key)])
+
 
 # --- Dependency for Database Session ---
 from database.database import engine
@@ -161,6 +188,91 @@ def create_training_job(job_request: TrainingJobCreate, db: Session = Depends(ge
         asset_id=new_model.asset_id,
         status=new_model.status
     )
+
+@router.post("/training-jobs-from-csv", response_model=TrainingJobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def create_training_job_from_csv(
+    db: Session = Depends(get_db_session),
+    asset_id: str = Form(...),
+    model_type: str = Form(...),
+    n_epochs: int = Form(20),
+    description: Optional[str] = Form(None),
+    file: UploadFile = File(...)
+):
+    """
+    Creates a training job by uploading a CSV file.
+    The file is first uploaded to S3, then the training task is queued.
+    """
+    # 1. Validate Asset
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"Asset with id '{asset_id}' not found.")
+
+    # 2. Upload file to S3
+    s3_client = get_s3_client()
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    s3_key = f"{S3_TRAINING_DATA_FOLDER}/{asset_id}_{timestamp}_{file.filename}"
+    
+    try:
+        s3_client.upload_fileobj(file.file, S3_BUCKET_NAME, s3_key)
+        print(f"Successfully uploaded training data to s3://{S3_BUCKET_NAME}/{s3_key}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload file to S3: {e}")
+
+    # 3. Create Model DB record
+    final_description = description or f"UI-initiated training for {asset_id} with {model_type}"
+    new_model = Model(
+        asset_id=asset_id,
+        model_type=model_type,
+        status="PENDING",
+        description=final_description,
+        model_version=f"pending_{uuid.uuid4().hex[:8]}",
+        training_data_path=s3_key, # Store the path to the uploaded data
+        created_at=datetime.now()
+    )
+    db.add(new_model)
+    db.commit()
+    db.refresh(new_model)
+
+    # 4. Dispatch Celery Task
+    task = train_model_task.delay(
+        model_id=new_model.id,
+        asset_id=new_model.asset_id,
+        s3_data_path=s3_key,
+        model_type=model_type,
+        n_epochs=n_epochs
+    )
+    
+    print(f"[Admin API] Queued training task {task.id} for model {new_model.id} from uploaded CSV.")
+
+    return TrainingJobResponse(
+        message="Training job from uploaded CSV created and queued successfully.",
+        model_id=new_model.id,
+        task_id=str(task.id),
+        asset_id=new_model.asset_id,
+        status=new_model.status
+    )
+
+@router.get("/tasks/{task_id}/status", response_model=TaskStatusResponse, summary="获取异步任务状态")
+def get_task_status(task_id: str):
+    """
+    Retrieves the status and result of a Celery task.
+    """
+    task_result = AsyncResult(task_id, app=celery_app)
+    
+    response = {
+        "task_id": task_id,
+        "status": task_result.status,
+        "result": task_result.result if task_result.ready() else None,
+    }
+    
+    # If the task is in progress, add the 'status' from the meta info
+    if task_result.status == 'PROGRESS' and isinstance(task_result.info, dict):
+        response['result'] = task_result.info
+    # If the task failed, the result is the exception, convert it to a string
+    elif task_result.status == 'FAILURE':
+        response['result'] = {'error': str(task_result.result)}
+
+    return response
 
 # --- Other Endpoints (API Keys, etc. - no changes) ---
 # (Assuming other endpoints like API key management remain the same)

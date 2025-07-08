@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../apiClient';
 
-function ModelTraining() {
+function ModelTraining({ activeTask, setActiveTask }) {
     const [assets, setAssets] = useState([]);
     const [selectedAsset, setSelectedAsset] = useState('');
     const [s3DataPath, setS3DataPath] = useState('');
-    const [nEpochs, setNEpochs] = useState(20); // New state for n_epochs
-    const [message, setMessage] = useState(null);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [dataInputMethod, setDataInputMethod] = useState('upload'); // 'upload' or 's3'
+    const [nEpochs, setNEpochs] = useState(20);
     const [error, setError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [selectedAlgorithm, setSelectedAlgorithm] = useState('LightGBM');
 
-    // Fetch assets for the dropdown
+    const algorithms = ['LightGBM', 'TiDE', 'LSTM', 'TFT', 'TFT (No Past Covariates)'];
+
     useEffect(() => {
         const fetchAssets = async () => {
             try {
@@ -27,31 +30,58 @@ function ModelTraining() {
         fetchAssets();
     }, []);
 
-    const [selectedAlgorithm, setSelectedAlgorithm] = useState('LightGBM'); // New state for algorithm selection
-
-    const algorithms = ['LightGBM', 'TiDE', 'LSTM', 'TFT', 'TFT (No Past Covariates)']; // Available algorithms
+    const handleFileChange = (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            setSelectedFile(file);
+        }
+    };
 
     const handleSubmit = async (event) => {
         event.preventDefault();
-        setMessage(null);
         setError(null);
         setIsLoading(true);
 
-        const jobRequest = {
-            asset_id: selectedAsset,
-            s3_data_path: s3DataPath,
-            model_type: selectedAlgorithm,
-            description: `UI-initiated training for ${selectedAsset} with ${selectedAlgorithm}`,
-            n_epochs: nEpochs,
-        };
-
         try {
-            const data = await apiClient('/admin/training-jobs', {
-                method: 'POST',
-                body: JSON.stringify(jobRequest),
-            });
-            setMessage(`Training job started successfully! Model ID: ${data.model_id}, Task ID: ${data.task_id}`);
-            setS3DataPath(''); // Clear input on success
+            let data;
+            if (dataInputMethod === 'upload') {
+                if (!selectedFile) {
+                    throw new Error("Please select a CSV file to upload.");
+                }
+                const formData = new FormData();
+                formData.append('asset_id', selectedAsset);
+                formData.append('model_type', selectedAlgorithm);
+                formData.append('n_epochs', nEpochs);
+                formData.append('description', `UI-upload training for ${selectedAsset} with ${selectedAlgorithm}`);
+                formData.append('file', selectedFile);
+                
+                data = await apiClient('/admin/training-jobs-from-csv', {
+                    method: 'POST',
+                    body: formData,
+                    // Let browser set Content-Type for multipart/form-data
+                });
+
+            } else { // 's3'
+                if (!s3DataPath) {
+                    throw new Error("Please provide an S3 data path.");
+                }
+                const jobRequest = {
+                    asset_id: selectedAsset,
+                    s3_data_path: s3DataPath,
+                    model_type: selectedAlgorithm,
+                    description: `UI-S3 training for ${selectedAsset} with ${selectedAlgorithm}`,
+                    n_epochs: nEpochs,
+                };
+                data = await apiClient('/admin/training-jobs', {
+                    method: 'POST',
+                    body: JSON.stringify(jobRequest),
+                });
+            }
+            
+            setActiveTask({ id: data.task_id, status: data.status });
+            setS3DataPath('');
+            setSelectedFile(null);
+
         } catch (err) {
             setError(`Failed to start training job: ${err.message}`);
         } finally {
@@ -63,67 +93,52 @@ function ModelTraining() {
         <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
             <h2>Start New Model Training</h2>
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '500px' }}>
+                {/* Asset and Algorithm Selection */}
                 <div>
-                    <label htmlFor="asset-select" style={{ display: 'block', marginBottom: '0.5rem' }}>Asset</label>
-                    <select 
-                        id="asset-select" 
-                        value={selectedAsset} 
-                        onChange={e => setSelectedAsset(e.target.value)} 
-                        required
-                        style={{ width: '100%', padding: '0.5rem' }}
-                    >
-                        {assets.map(asset => (
-                            <option key={asset.id} value={asset.id}>{asset.name} ({asset.id})</option>
-                        ))}
+                    <label>Asset</label>
+                    <select value={selectedAsset} onChange={e => setSelectedAsset(e.target.value)} required disabled={isLoading || activeTask} style={{ width: '100%', padding: '0.5rem' }}>
+                        {assets.map(asset => <option key={asset.id} value={asset.id}>{asset.name} ({asset.id})</option>)}
                     </select>
                 </div>
                 <div>
-                    <label htmlFor="algorithm-select" style={{ display: 'block', marginBottom: '0.5rem' }}>Algorithm</label>
-                    <select 
-                        id="algorithm-select" 
-                        value={selectedAlgorithm} 
-                        onChange={e => setSelectedAlgorithm(e.target.value)} 
-                        required
-                        style={{ width: '100%', padding: '0.5rem' }}
-                    >
-                        {algorithms.map(algo => (
-                            <option key={algo} value={algo}>{algo}</option>
-                        ))}
+                    <label>Algorithm</label>
+                    <select value={selectedAlgorithm} onChange={e => setSelectedAlgorithm(e.target.value)} required disabled={isLoading || activeTask} style={{ width: '100%', padding: '0.5rem' }}>
+                        {algorithms.map(algo => <option key={algo} value={algo}>{algo}</option>)}
                     </select>
                 </div>
-                <div>
-                    <label htmlFor="s3-path" style={{ display: 'block', marginBottom: '0.5rem' }}>S3 Data Path (Key)</label>
-                    <input 
-                        id="s3-path"
-                        type="text" 
-                        value={s3DataPath} 
-                        onChange={e => setS3DataPath(e.target.value)} 
-                        placeholder="e.g., training-data/production_line_a_2025.csv"
-                        required
-                        style={{ width: '100%', padding: '0.5rem' }}
-                    />
+
+                {/* Data Input Method Selection */}
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                    <label><input type="radio" value="upload" checked={dataInputMethod === 'upload'} onChange={() => setDataInputMethod('upload')} disabled={isLoading || activeTask} /> Upload CSV</label>
+                    <label><input type="radio" value="s3" checked={dataInputMethod === 's3'} onChange={() => setDataInputMethod('s3')} disabled={isLoading || activeTask} /> S3 Path</label>
                 </div>
+
+                {/* Conditional Data Input */}
+                {dataInputMethod === 'upload' ? (
+                    <div>
+                        <label>Training Data File</label>
+                        <input type="file" accept=".csv" onChange={handleFileChange} required style={{ width: '100%', padding: '0.5rem' }} disabled={isLoading || activeTask} />
+                        {selectedFile && <small>{selectedFile.name}</small>}
+                    </div>
+                ) : (
+                    <div>
+                        <label>S3 Data Path (Key)</label>
+                        <input type="text" value={s3DataPath} onChange={e => setS3DataPath(e.target.value)} placeholder="e.g., training-data/data.csv" required style={{ width: '100%', padding: '0.5rem' }} disabled={isLoading || activeTask} />
+                    </div>
+                )}
+
+                {/* Epochs and Submit Button */}
                 <div>
-                    <label htmlFor="n-epochs" style={{ display: 'block', marginBottom: '0.5rem' }}>Number of Epochs</label>
-                    <input 
-                        id="n-epochs"
-                        type="number" 
-                        value={nEpochs} 
-                        onChange={e => setNEpochs(parseInt(e.target.value, 10))}
-                        min="1" // Minimum value
-                        max="200" // Maximum value to prevent excessively long training
-                        required
-                        style={{ width: '100%', padding: '0.5rem' }}
-                    />
+                    <label>Number of Epochs</label>
+                    <input type="number" value={nEpochs} onChange={e => setNEpochs(parseInt(e.target.value, 10))} min="1" max="200" required style={{ width: '100%', padding: '0.5rem' }} disabled={isLoading || activeTask} />
                     <small style={{ color: '#666', fontSize: '0.8rem', marginTop: '0.25rem' }}>
                         Recommended for neural networks (TiDE, LSTM, TFT): 20-100. LightGBM does not use epochs.
                     </small>
                 </div>
-                <button type="submit" disabled={isLoading || assets.length === 0} style={{ padding: '0.75rem', cursor: 'pointer' }}>
-                    {isLoading ? 'Starting Job...' : 'Start Training Job'}
+                <button type="submit" disabled={isLoading || activeTask || assets.length === 0} style={{ padding: '0.75rem', cursor: 'pointer' }}>
+                    {isLoading ? 'Starting Job...' : (activeTask ? 'A Task is Running' : 'Start Training Job')}
                 </button>
             </form>
-            {message && <p style={{ color: 'green', marginTop: '1rem' }}>{message}</p>}
             {error && <p style={{ color: 'red', marginTop: '1rem' }}>{error}</p>}
         </div>
     );

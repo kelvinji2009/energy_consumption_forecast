@@ -342,7 +342,7 @@ function ForecastView() {
                             .filter(model => model.status === 'COMPLETED')
                             .map(model => (
                             <option key={model.id} value={model.id}>
-                                {`v${model.model_version} - ${model.model_type} | MAPE: ${model.metrics?.mape?.toFixed(2) ?? 'N/A'}% | Trained: ${new Date(model.created_at).toLocaleDateString()}`}
+                                {`v${model.model_version} - ${model.model_type} | MAPE: ${model.metrics?.mape?.toFixed(2) ?? 'N/A'}% | Trained: ${new Date(model.created_at).toLocaleDateString()} (ID: ${model.id})`}
                             </option>
                         ))
                     )}

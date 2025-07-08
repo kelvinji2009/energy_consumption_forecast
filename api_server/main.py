@@ -265,6 +265,14 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
         try:
             s3_client = get_s3_client()
             model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+            
+            # --- BUG FIX: Check if model loaded successfully ---
+            if model_obj is None:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Model Consistency Error: Model file not found in S3 for model ID {model_id} at path '{model_record.model_path}'. Please retrain the model."
+                )
+
             scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
             scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
             scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client) # Load past_cov_scaler
@@ -375,6 +383,14 @@ async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: 
         try:
             s3_client = get_s3_client()
             model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+
+            # --- BUG FIX: Check if model loaded successfully ---
+            if model_obj is None:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Model Consistency Error: Model file not found in S3 for model ID {model_id} at path '{model_record.model_path}'. Please retrain the model."
+                )
+            
             scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
             scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
             scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client)
@@ -467,13 +483,17 @@ async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: st
     model_key = f"model_{model_id}"
 
     if model_key not in model_cache:
-        model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
-        if not model_record:
-            raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
-
         try:
             s3_client = get_s3_client()
             model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+
+            # --- BUG FIX: Check if model loaded successfully ---
+            if model_obj is None:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Model Consistency Error: Model file not found in S3 for model ID {model_id} at path '{model_record.model_path}'. Please retrain the model."
+                )
+
             scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
             scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
             scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client)
@@ -580,6 +600,14 @@ async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data
         try:
             s3_client = get_s3_client()
             model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
+
+            # --- BUG FIX: Check if model loaded successfully ---
+            if model_obj is None:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Model Consistency Error: Model file not found in S3 for model ID {model_id} at path '{model_record.model_path}'. Please retrain the model."
+                )
+
             scaler_obj = _load_artifact_from_s3(model_record.scaler_path, s3_client)
             scaler_cov_obj = _load_artifact_from_s3(model_record.scaler_cov_path, s3_client)
             scaler_past_cov_obj = _load_artifact_from_s3(model_record.scaler_past_cov_path, s3_client)
