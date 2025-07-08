@@ -1,191 +1,137 @@
-# 工业能耗预测与异常检测
+# 工业能耗预测与异常检测全栈应用
 
-本项目提供了一个完整的时间序列分析流程，包括模拟数据生成、模型训练、能耗预测和异常检测。项目使用 `darts` 库来展示如何应用不同的模型（如 **Temporal Fusion Transformer (TFT)**、**LSTM**、**TiDE** 和 **LightGBM**）来解决真实的工业问题。
+本项目是一个功能完整的全栈应用，旨在提供工业级的能源消耗预测和实时异常检测服务。它整合了先进的机器学习模型、一个健壮的后端 API、一个异步任务处理系统以及一个用户友好的前端管理界面。
 
-## 📋 功能特性
+## ✨ 核心功能
 
-- **模拟数据生成**: 创建一个逼真的数据集 (`simulated_plant_data.csv`)，模拟包含产量、温度和湿度的每小时工业数据，其中涵盖了日、周和季节性周期，并注入了异常点。
-- **多模型时间序列预测**: 训练和评估多种先进的预测模型（TFT, LSTM, TiDE, LightGBM），以预测未来的能源消耗。
-- **协变量支持**: 演示了如何使用过去、现在和未来的协变量（如产量水平、温度和基于时间的特征）来提高模型的准确性。
-- **异常检测**: 实现了一个基于残差的异常检测系统。模型会预测预期的能源使用量，而显著的偏差则被标记为异常。
-- **可视化**: 生成图表以可视化历史数据、检测到的异常和未来的预测。
+- **多种预测模型**: 支持多种业界领先的时间序列预测模型，包括 `LightGBM`, `TiDE`, `LSTM`, 和 `TFT`。
+- **实时异常检测**: 基于预测残差和 `QuantileDetector`，能够实时识别数据流中的异常能耗点。
+- **异步模型训练**: 利用 `Celery` 和 `Redis`，在后台异步处理耗时的模型训练任务，避免阻塞 API 服务。
+- **RESTful API**: 提供了一套完整的 `FastAPI` 接口，用于模型管理、触发训练、执行预测和异常检测。
+- **现代化管理前端**: 基于 `React` 和 `Material-UI` 构建，提供模型管理、数据上传、任务触发以及结果可视化的完整操作界面。
+- **容器化部署**: 通过 `Docker` 和 `Docker Compose`，实现整个系统（包括数据库、缓存、对象存储和应用服务）的一键化部署和管理。
+- **对象存储集成**: 使用 `MinIO` (S3 兼容) 作为模型文件、数据集和其他产物的存储后端，实现生产级的文件管理。
+
+## 🏗️ 技术架构
+
+系统采用解耦的微服务架构，各个组件各司其职，并通过网络进行通信。
+
+### 技术选型
+
+| 分类         | 技术                               |
+| :----------- | :--------------------------------- |
+| **前端**     | React, Material-UI, Recharts, Vite |
+| **后端**     | Python, FastAPI                    |
+| **ML 框架**  | Darts (u8darts), PyTorch, Scikit-learn |
+| **数据库**   | PostgreSQL                         |
+| **数据库迁移** | Alembic                            |
+| **异步任务** | Celery, Redis                      |
+| **对象存储** | MinIO (S3 兼容)                    |
+| **部署**     | Docker, Docker Compose             |
+
+### 架构图
+
+```mermaid
+graph TD
+    subgraph "用户端"
+        User[👨‍💻 用户/管理员]
+    end
+
+    subgraph "应用服务 (Docker Compose)"
+        Frontend[🌐 React 前端<br>(Nginx/Vite)]
+        API[🚀 FastAPI 后端 API]
+        Worker[👷 Celery Worker]
+    end
+
+    subgraph "基础设施 (Docker Compose)"
+        DB[(🐘 PostgreSQL)]
+        Cache[(⚡ Redis)]
+        S3[📦 MinIO/S3]
+    end
+
+    User -- "访问/操作" --> Frontend
+    Frontend -- "HTTP API 请求" --> API
+
+    API -- "读写模型元数据" --> DB
+    API -- "发送训练任务" --> Cache
+    API -- "加载模型/数据" --> S3
+    API -- "返回结果" --> Frontend
+
+    Worker -- "获取训练任务" --> Cache
+    Worker -- "读写模型元数据" --> DB
+    Worker -- "下载数据/上传模型" --> S3
+```
+
+## 🚀 本地运行指南 (Getting Started)
+
+通过 Docker Compose，您可以轻松地在本地一键启动整个应用。
+
+### 1. 环境准备
+
+- 确保您的机器上已安装 [Docker](https://docs.docker.com/get-docker/) 和 [Docker Compose](https://docs.docker.com/compose/install/)。
+
+### 2. 环境配置
+
+- 项目根目录下有一个 `.env.example` 文件。请复制它来创建一个 `.env` 文件：
+  ```bash
+  cp .env.example .env
+  ```
+- 您可以根据需要修改 `.env` 文件中的配置，但默认值已足够用于本地开发。
+
+### 3. 构建并启动服务
+
+- 在项目根目录下，执行以下命令来构建镜像并启动所有服务：
+  ```bash
+  docker-compose up --build
+  ```
+- 该命令会启动 API 服务、Celery Worker、前端、数据库、Redis 和 MinIO。数据库初始化任务 (`db-init`) 会自动运行，并使用 Alembic 将数据库结构更新到最新版本。
+
+### 4. 创建初始 API 密钥
+
+- 为了能与受保护的 API 端点交互，您需要创建一个初始的 API 密钥。
+- 待服务启动后，打开一个新的终端，执行以下命令：
+  ```bash
+  docker-compose run --rm api python -m tools.create_initial_key "My First Key"
+  ```
+- **请务必复制并保存好输出的 API 密钥**，前端页面的所有请求都需要使用它。
+
+### 5. 访问系统
+
+- **前端管理界面**:
+  - 访问 `http://localhost:5173`
+  - 在页面的 API 密钥输入框中，粘贴上一步生成的密钥。
+- **后端 API 文档 (Swagger UI)**:
+  - 访问 `http://localhost:8000/docs`
+  - 您可以在这里浏览所有 API 端点，并进行交互式测试。
+- **MinIO 对象存储控制台**:
+  - 访问 `http://localhost:9001`
+  - 使用 `.env` 文件中定义的 `MINIO_ROOT_USER` 和 `MINIO_ROOT_PASSWORD` 登录。默认情况下，`models` bucket 会被自动创建。
+
+## 🛠️ 使用说明
+
+1.  **访问前端**: 打开 `http://localhost:5173` 并输入您的 API 密钥。
+2.  **创建资产**: 在 "模型训练" 标签页，首先创建一个资产（如 `production_line_A`）。
+3.  **上传数据**: 为该资产上传用于训练的 CSV 数据文件。
+4.  **触发训练**: 选择模型类型并点击 "开始训练"。您可以在终端查看 `worker` 服务的日志来跟踪进度。
+5.  **执行预测/异常检测**: 训练完成后，切换到 "能源预测" 或 "异常检测" 标签页，选择刚刚训练好的模型，上传一份用于推理的 CSV 文件，即可看到可视化的结果。
 
 ## 📂 项目结构
 
 ```
 /
-├── data/
-│   └── simulated_plant_data.csv    # 原始模拟数据
-├── demo/
-│   ├── 01_data_preprocessing.py    # 清洗数据和特征工程
-│   ├── 02_train_and_evaluate*.py   # 用于训练不同模型的脚本 (TFT, LSTM, TiDE, LightGBM)
-│   ├── 03_anomaly_detection*.py    # 用于异常检测和预测的脚本
-│   ├── processed_data.csv          # 用于建模的已处理数据
-│   ├── models/                     # 存储训练好的模型文件
-│   └── plots/                      # 存储输出的可视化图表
-├── .gitignore
-├── generate_data.py                # 用于生成初始数据集的脚本
-├── LICENSE
+├── admin_frontend/ # React 前端应用
+├── alembic/        # Alembic 数据库迁移脚本
+├── api_server/     # FastAPI 后端服务
+├── celery_worker/  # Celery 异步任务定义
+├── core/           # 核心的训练和推理服务逻辑
+├── database/       # SQLAlchemy 模型和数据库配置
+├── tools/          # 实用工具脚本 (如创建API密钥)
+├── .env.example    # 环境变量示例文件
+├── docker-compose.yml # Docker Compose 配置文件
+├── Dockerfile      # 应用的 Dockerfile
 └── README.md
 ```
 
-## 🚀 快速开始
-
-### 环境准备（conda）
-
-请确保您已安装 conda，并已经创建了对应darts env。
-
-```bash
-conda env list | grep darts
-```
-如果未找到darts env，使用以下命令创建
-```bash
-conda create -n darts python=3.9 -y
-```
-
-本项目依赖以下库，您可以使用 pip 进行安装：
-
-```bash
-conda run -n darts pip install pandas numpy "darts[torch]" matplotlib scikit-learn joblib
-```
-*注意: `darts[torch]` 会确保 PyTorch (TFT 和 LSTM 模型的一个依赖项) 被正确安装。*
-
-### 分步工作流
-
-1.  **生成数据**:
-    首先，在项目的根目录下运行生成脚本来创建模拟数据集。
-
-    ```bash
-    conda run -n darts python generate_data.py
-    ```
-    这将在 `data/` 目录下创建 `simulated_plant_data.csv` 文件。
-
-2.  **预处理数据**:
-    接下来，运行预处理脚本。此脚本应在 `demo` 目录下运行。
-
-    ```bash
-    cd demo
-    conda run -n darts python 01_data_preprocessing.py
-    ```
-    这将在 `demo/` 目录下创建 `processed_data.csv` 文件。
-
-3.  **训练预测模型**:
-    您可以选择训练四个模型中的任何一个。在 `demo` 目录下运行以下命令：
-
-    ```bash
-    # 训练 Temporal Fusion Transformer (TFT) 模型
-    conda run -n darts python 02_train_and_evaluate.py
-
-    # 训练 LightGBM 模型
-    conda run -n darts python 02_train_and_evaluate_lgbm.py
-
-    # 训练 LSTM 模型
-    conda run -n darts python 02_train_and_evaluate_lstm.py
-    
-    # 训练 TiDE 模型
-    conda run -n darts python 02_train_and_evaluate_tide.py
-    ```
-    训练好的模型将保存在 `demo/models/` 目录下。
-
-4.  **检测异常并预测未来消耗**:
-    训练模型后，运行相应的异常检测脚本。例如，如果您训练了 **LSTM** 模型：
-
-    ```bash
-    # 使用 LSTM 模型进行异常检测
-    conda run -n darts python 03_anomaly_detection_lstm.py
-
-    # 或者，如果您训练了 TiDE 模型
-    conda run -n darts python 03_anomaly_detection_tide.py
-    ```
-    此脚本将使用训练好的模型在历史数据中查找异常，并生成2025年上半年的能耗预测。显示结果的最终图表将保存在 `demo/plots/` 目录下。
-
-## 🛠️ 方法论
-
-### 预测模型
-
-该项目利用 `darts` 库进行时间序列预测，并实现了以下四个模型：
-
-- **Temporal Fusion Transformer (TFT)**: 一个基于注意力机制的深度学习模型，专为多水平时间序列预测设计。它能够捕捉复杂的长期依赖关系，并整合静态元数据和多种协变量。
-- **LSTM (Long Short-Term Memory)**: 一种循环神经网络（RNN），非常适合处理和预测时间序列数据中的序列依赖性。
-- **TiDE (Time-series Dense Encoder)**: 一个新颖的、完全基于密集连接的模型，它在保持高性能的同时，比基于注意力的模型更高效。
-- **LightGBM**: 一个基于树的学习算法，通常用于表格数据，但通过特征工程（如滞后特征），它也能非常有效地用于时间序列预测。
-
-所有模型都将能耗作为目标变量，并使用其他数据点作为协变量：
-- **过去协变量 (Past Covariates)**: 截至当前已知的历史数据（例如 `production_units`, `temperature_celsius`）。
-- **未来协变量 (Future Covariates)**: 事先已知的数据（例如，一天中的小时，一周中的天）。
-
-### 异常检测
-
-异常检测方法基于预测残差。工作流程如下：
-1.  训练好的模型为训练集或验证集生成历史预测。
-2.  计算每个时间步的实际值与模型预测之间的绝对差值（残差）。
-3.  在这些残差上拟合一个 `QuantileDetector`。它确定一个阈值（例如，第98个百分位数），任何高于此阈值的残差都被视为异常。
-4.  这个拟合好的检测器随后用于对新的或未见过的数据进行评分和标记异常。
-
-这种方法是有效的，因为它将“异常”定义为模型在学习了系统的正常模式后无法预测的事件。
-
----
-
-## 🚀 系统运行指南
-
-本项目已扩展为一个完整的能耗预测与异常检测系统，包含API服务、后台管理和异步训练。以下是启动和运行整个系统的步骤：
-
-**前提条件：**
-
-*   已安装 `conda`。
-*   已创建并激活 `darts` conda 环境，并安装了所有项目依赖。
-*   已安装并运行 `PostgreSQL` 数据库。
-*   已安装并运行 `Redis` 服务器（作为 Celery 的消息代理和结果后端）。
-
-**启动步骤：**
-
-1.  **设置数据库环境变量**：
-    在您将要运行后端 API 和 Celery Worker 的终端中，设置 `DATABASE_URL` 环境变量。
-    ```bash
-    export DATABASE_URL="postgresql://kelvinji:mitnick888@localhost:5432/energy_forecast_db"
-    ```
-    请根据您的实际 PostgreSQL 用户名、密码和数据库名进行修改。
-
-2.  **初始化数据库表和数据** (仅首次运行或需要重置时执行)：
-    从项目根目录执行：
-    ```bash
-    conda run -n darts python -m database.database
-    conda run -n darts python -m database.insert_initial_data
-    ```
-    这将创建所需的数据库表并插入一个默认资产和模型记录。
-
-3.  **启动 Celery Worker** (在**一个单独的终端**中，从项目根目录执行)：
-    ```bash
-    conda run -n darts celery -A celery_worker.celery_app worker -l info
-    ```
-    这将启动 Celery 任务处理器，它会监听 Redis 队列并执行模型训练任务。
-
-4.  **启动后端 API 服务** (在**另一个单独的终端**中，从项目根目录执行)：
-    ```bash
-    ./api_server/start_server.sh
-    ```
-    这将启动 FastAPI 后端服务，包括预测 API 和管理 API。
-
-5.  **启动前端开发服务器** (在**第三个单独的终端**中，进入 `admin_frontend` 目录后执行)：
-    ```bash
-    cd admin_frontend
-    npm run dev
-    ```
-    这将启动 React 前端应用。
-
-**访问系统：**
-
-*   **后端 API 文档 (Swagger UI)**：在浏览器中访问 `http://127.0.0.1:8000/docs`
-*   **后台管理系统 (前端 UI)**：在浏览器中访问 `http://localhost:5173/` (如果 `npm run dev` 输出的端口不同，请以实际端口为准)
-
-**测试预测 API (需要 API Key)：**
-
-1.  通过后台管理系统前端 UI (API 密钥页面) 生成一个 API 密钥。
-2.  使用 `api_client_test.py` 脚本进行测试，确保在请求头中包含 `Authorization: Bearer <YOUR_API_KEY>`。
-    ```bash
-    conda run -n darts python api_client_test.py
-    ```
-
 ## 📄 许可证
 
-本项目根据 LICENSE 文件中的条款进行许可。
+本项目根据 [MIT License](LICENSE) 的条款进行许可。
