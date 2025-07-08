@@ -252,13 +252,14 @@ function AnomalyDetectionView() {
                     value={selectedModelId}
                     onChange={e => setSelectedModelId(e.target.value)}
                     style={{ width: '100%', padding: '0.5rem' }}
+                    disabled={!selectedAsset || models.length === 0}
                 >
                     {models.length === 0 ? (
                         <option value="">No models with detectors available</option>
                     ) : (
                         models.map(model => (
                             <option key={model.id} value={model.id}>
-                                {model.model_type} - {model.model_version} (ID: {model.id})
+                                {`v${model.model_version} - ${model.model_type} | MAPE: ${model.metrics?.mape?.toFixed(2) ?? 'N/A'}% | Trained: ${new Date(model.created_at).toLocaleDateString()}`}
                             </option>
                         ))
                     )}

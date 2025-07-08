@@ -80,11 +80,18 @@ class AnomalyDetectionResponse(BaseModel):
     historical_data: Optional[List[TimeSeriesDataPoint]] = None
 
 
-class ModelInfo(BaseModel):
+class ModelInfoResponse(BaseModel):
     id: int
     model_type: str
     model_version: str
+    status: str
     description: Optional[str] = None
+    metrics: Optional[dict] = None
+    detector_path: Optional[str] = None # Use path for boolean check on frontend
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 # --- Lifespan, App, Security setup ---
@@ -136,19 +143,12 @@ def _load_artifact_from_s3(s3_path: str, s3_client) -> Any:
 @app.get("/ping", summary="Check service status")
 def ping(): return {"status": "ok"}
 
-@app.get("/admin/assets/{asset_id}/models", response_model=List[ModelInfo], dependencies=[Depends(verify_api_key)])
+@app.get("/admin/assets/{asset_id}/models", response_model=List[ModelInfoResponse], dependencies=[Depends(verify_api_key)])
 async def get_asset_models(asset_id: str, db: Session = Depends(get_db)):
     """获取指定资产的所有可用模型信息。"""
-    stmt = select(Model).where(Model.asset_id == asset_id).order_by(Model.model_type, Model.model_version.desc())
+    stmt = select(Model).where(Model.asset_id == asset_id).order_by(Model.created_at.desc())
     models = db.execute(stmt).scalars().all()
-    return [
-        ModelInfo(
-            id=m.id,
-            model_type=m.model_type,
-            model_version=m.model_version,
-            description=m.description
-        ) for m in models
-    ]
+    return models
 
 # --- API Endpoints with Bulletproof Code ---
 
