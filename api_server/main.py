@@ -612,6 +612,9 @@ async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data
         if 'timestamp' not in df.columns or 'value' not in df.columns:
             raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
         
+        # Convert timestamp column to datetime objects before creating TimeSeriesDataPoint
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
         historical_data = [TimeSeriesDataPoint(**row) for index, row in df.iterrows()]
 
     except Exception as e:
@@ -644,7 +647,7 @@ async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data
             scaler=scaler
         )
         
-        anomalies_data = [AnomalyDataPoint(timestamp=ts, value=row['value']) for ts, row in anomalies_df.iterrows()]
+        anomalies_data = [AnomalyDataPoint(timestamp=row['timestamp'], value=row['value']) for index, row in anomalies_df.iterrows()]
         
         return AnomalyDetectionResponse(asset_id=asset_id, anomalies=anomalies_data, historical_data=historical_data)
         
