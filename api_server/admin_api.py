@@ -3,12 +3,13 @@ import os
 import uuid
 import bcrypt
 import boto3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy import func # Import func
 
 # Project imports
 import sys
@@ -44,9 +45,13 @@ class AssetBase(BaseModel):
 class AssetCreate(AssetBase):
     id: str = Field(..., max_length=255, description="Unique asset ID, e.g., production_line_A")
 
+class AssetUpdate(AssetBase):
+    pass
+
 class AssetResponse(AssetCreate):
     created_at: datetime
     updated_at: datetime
+    model_count: int = 0
     class Config: from_attributes = True
 
 # Models
@@ -130,7 +135,88 @@ def create_asset(asset: AssetCreate, db: Session = Depends(get_db_session)):
 
 @router.get("/assets", response_model=List[AssetResponse])
 def read_assets(db: Session = Depends(get_db_session)):
-    return db.query(Asset).all()
+    # Query to get model counts for each asset
+    model_counts = (
+        db.query(Model.asset_id, func.count(Model.id).label("model_count"))
+        .group_by(Model.asset_id)
+        .subquery()
+    )
+    
+    # Left join assets with the model counts
+    results = (
+        db.query(
+            Asset,
+            model_counts.c.model_count
+        )
+        .outerjoin(model_counts, Asset.id == model_counts.c.asset_id)
+        .order_by(Asset.name)
+        .all()
+    )
+
+    # Format the response
+    response_data = []
+    for asset, count in results:
+        response_data.append(
+            AssetResponse(
+                id=asset.id,
+                name=asset.name,
+                description=asset.description,
+                created_at=asset.created_at,
+                updated_at=asset.updated_at,
+                model_count=count or 0  # Use 0 if count is None (no models)
+            )
+        )
+    return response_data
+
+@router.put("/assets/{asset_id}", response_model=AssetResponse)
+def update_asset(asset_id: str, asset_update: AssetUpdate, db: Session = Depends(get_db_session)):
+    """
+    Updates an asset's name and description.
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    
+    # Update fields
+    asset.name = asset_update.name
+    asset.description = asset_update.description
+    # The onupdate hook for updated_at will trigger automatically on commit
+    
+    db.commit()
+    db.refresh(asset)
+    
+    # We need to get the model count separately for the response
+    model_count = db.query(Model).filter(Model.asset_id == asset_id).count()
+
+    return AssetResponse(
+        id=asset.id,
+        name=asset.name,
+        description=asset.description,
+        created_at=asset.created_at,
+        updated_at=asset.updated_at,
+        model_count=model_count
+    )
+
+@router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_asset(asset_id: str, db: Session = Depends(get_db_session)):
+    """
+    Deletes an asset, only if it has no associated models.
+    """
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+        
+    # --- Restricted Deletion Logic ---
+    model_count = db.query(Model).filter(Model.asset_id == asset_id).count()
+    if model_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot delete asset '{asset_id}'. It is associated with {model_count} model(s). Please reassign or delete them first."
+        )
+        
+    db.delete(asset)
+    db.commit()
+    return
 
 # --- Model Endpoints (Read-only parts, no changes) ---
 @router.get("/models", response_model=List[ModelResponse])
@@ -165,7 +251,7 @@ def create_training_job(job_request: TrainingJobCreate, db: Session = Depends(ge
         status="PENDING",
         description=job_request.description,
         model_version=f"pending_{uuid.uuid4().hex[:8]}",
-        created_at=datetime.now()
+        created_at=datetime.now(timezone.utc)
     )
     db.add(new_model)
     db.commit()
@@ -227,7 +313,7 @@ async def create_training_job_from_csv(
         description=final_description,
         model_version=f"pending_{uuid.uuid4().hex[:8]}",
         training_data_path=s3_key, # Store the path to the uploaded data
-        created_at=datetime.now()
+        created_at=datetime.now(timezone.utc)
     )
     db.add(new_model)
     db.commit()
@@ -296,7 +382,7 @@ def create_api_key(key_create: ApiKeyCreate, db: Session = Depends(get_db_sessio
         key_hash=key_hash,
         description=key_create.description,
         is_active=True,
-        created_at=datetime.now()
+        created_at=datetime.now(timezone.utc)
     )
     db.add(new_api_key)
     db.commit()

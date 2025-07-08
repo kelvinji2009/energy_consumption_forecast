@@ -21,8 +21,8 @@ class Asset(Base):
     id = Column(String, primary_key=True, index=True, comment="资产的唯一标识符，例如生产线ID")
     name = Column(String(255), nullable=False, comment="资产的友好名称")
     description = Column(Text, nullable=True, comment="资产的描述")
-    created_at = Column(DateTime, nullable=False, default=func.now(), comment="创建时间")
-    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now(), comment="最后更新时间")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now(), comment="最后更新时间")
 
 class Model(Base):
     __tablename__ = 'models'
@@ -45,7 +45,7 @@ class Model(Base):
     training_data_path = Column(Text, nullable=True, comment="训练数据在S3中的路径 (key)")
 
     is_active = Column(Boolean, nullable=False, default=False, comment="是否是当前资产的默认推荐模型")
-    created_at = Column(DateTime, nullable=False, default=func.now(), comment="模型记录的创建时间")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), comment="模型记录的创建时间")
     description = Column(Text, nullable=True, comment="模型的用户友好描述")
     metrics = Column(JSONB, nullable=True, comment="训练指标，例如 MAPE, RMSE")
 
@@ -55,8 +55,8 @@ class ApiKey(Base):
     key_hash = Column(String(255), nullable=False, unique=True, comment="API密钥的哈希值")
     description = Column(Text, nullable=True, comment="密钥用途描述")
     is_active = Column(Boolean, nullable=False, default=True, comment="密钥是否活跃")
-    created_at = Column(DateTime, nullable=False, default=func.now(), comment="创建时间")
-    expires_at = Column(DateTime, nullable=True, comment="过期时间 (可选)")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), comment="创建时间")
+    expires_at = Column(DateTime(timezone=True), nullable=True, comment="过期时间 (可选)")
 
 # --- Engine ---
 engine = create_engine(DATABASE_URL)
