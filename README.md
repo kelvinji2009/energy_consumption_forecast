@@ -62,9 +62,9 @@ graph TD
     Worker -- "下载数据/上传模型" --> S3
 ```
 
-## 🚀 本地运行指南 (Getting Started)
+## 🚀 本地一键启动 (Getting Started)
 
-通过 Docker Compose，您可以轻松地在本地一键启动整个应用。
+得益于全面的自动化脚本，现在启动一个全新的开发环境变得前所未有的简单。
 
 ### 1. 环境准备
 
@@ -82,30 +82,40 @@ graph TD
 
 - 在项目根目录下，执行以下命令来构建镜像并启动所有服务：
   ```bash
-  docker-compose up --build
+  docker compose up --build
   ```
-- 该命令会启动 API 服务、Celery Worker、前端、数据库、Redis 和 MinIO。数据库初始化任务 (`db-init`) 会自动运行，并使用 Alembic 将数据库结构更新到最新版本。
+- **初始化流程全自动**:
+  - `db-init` 服务会自动运行数据库迁移 (`Alembic`)。
+  - 自动检查并创建所需的 S3/MinIO 存储桶 (`models`)。
+  - 自动清空旧的 API 密钥，保证环境干净。
+  - **自动生成一个全新的初始 API 密钥**。
 
-### 4. 创建初始 API 密钥
+### 4. 获取并使用初始 API 密钥
 
-- 为了能与受保护的 API 端点交互，您需要创建一个初始的 API 密钥。
-- 待服务启动后，打开一个新的终端，执行以下命令：
-  ```bash
-  docker-compose run --rm api python -m tools.create_initial_key "My First Key"
+- **在终端日志中找到密钥**:
+  - 服务启动时，请仔细观察 `db-init-1` 服务的日志输出。
+  - 在日志的末尾，您会看到一个明确的提示，其中包含了新生成的、唯一有效的 API 密钥。请复制它。
+  ```log
+  db-init-1  | --- GENERATING INITIAL API KEY ---
+  ...
+  db-init-1  | API Key: 
+  db-init-1  |     xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  ...
+  db-init-1  | --- INITIALIZATION COMPLETE ---
   ```
-- **请务必复制并保存好输出的 API 密钥**，前端页面的所有请求都需要使用它。
 
-### 5. 访问系统
+- **访问并授权前端**:
+  - 打开浏览器并访问 `http://localhost:5173`。
+  - 应用会自动弹出一个对话框，提示您输入 API 密钥。
+  - 将您刚刚从日志中复制的密钥粘贴进去并提交。
 
-- **前端管理界面**:
-  - 访问 `http://localhost:5173`
-  - 在页面的 API 密钥输入框中，粘贴上一步生成的密钥。
+### 5. 访问其他服务
+
 - **后端 API 文档 (Swagger UI)**:
   - 访问 `http://localhost:8000/docs`
-  - 您可以在这里浏览所有 API 端点，并进行交互式测试。
 - **MinIO 对象存储控制台**:
   - 访问 `http://localhost:9001`
-  - 使用 `.env` 文件中定义的 `MINIO_ROOT_USER` 和 `MINIO_ROOT_PASSWORD` 登录。默认情况下，`models` bucket 会被自动创建。
+  - 使用 `.env` 文件中定义的 `MINIO_ROOT_USER` 和 `MINIO_ROOT_PASSWORD` 登录。
 
 ## 🛠️ 使用说明
 
