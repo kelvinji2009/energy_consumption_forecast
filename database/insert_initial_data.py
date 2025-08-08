@@ -1,55 +1,58 @@
-
-from database.database import engine, assets_table, models_table, api_keys_table
-from sqlalchemy import insert, select, update
 import os
-import uuid
-from datetime import datetime
+import sys
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 
-# --- Configuration ---
-MODEL_RELATIVE_PATH = os.path.join("demo", "models", "lgbm_energy_model", "model.joblib")
+# Add project root to the Python path
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(PROJECT_ROOT)
 
-# --- Initial Data ---
+from database.database import Asset, Base
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/energy_forecast_db")
+
 DEFAULT_ASSET_ID = "production_line_A"
-DEFAULT_ASSET_NAME = "生产线A"
-DEFAULT_MODEL_VERSION = "v1.0"
-DEFAULT_MODEL_TYPE = "LightGBM"
-# This key is hardcoded in the frontend's ForecastView.jsx for demo purposes
-DEFAULT_API_KEY = "3369df94-7513-459e-be83-104bdb046b85"
+DEFAULT_ASSET_NAME = "Production Line A"
 
-def insert_initial_data():
-    """插入初始资产、模型和API密钥数据到数据库。"""
-    print("--- Inserting initial data ---")
-    with engine.connect() as connection:
-        # 1. 检查并插入默认资产
-        stmt_check_asset = select(assets_table).where(assets_table.c.id == DEFAULT_ASSET_ID)
-        if not connection.execute(stmt_check_asset).fetchone():
-            stmt_insert_asset = insert(assets_table).values(
-                id=DEFAULT_ASSET_ID, name=DEFAULT_ASSET_NAME, description="主要的生产线能耗预测资产"
-            )
-            connection.execute(stmt_insert_asset)
-            print(f"Inserted asset: {DEFAULT_ASSET_ID}")
-        else:
-            print(f"Asset {DEFAULT_ASSET_ID} already exists.")
+def main():
+    """
+    Checks if the default asset exists and creates it if it doesn't.
+    This ensures that a new environment always has at least one asset to work with.
+    """
+    print("--- Running initial data seeder ---")
+    try:
+        engine = create_engine(DATABASE_URL)
+        with Session(engine) as session:
+            # Check if the default asset already exists
+            stmt = select(Asset).where(Asset.id == DEFAULT_ASSET_ID)
+            existing_asset = session.execute(stmt).scalar_one_or_none()
 
-        # 2. 检查并插入默认模型
-        stmt_check_model = select(models_table).where(
-            models_table.c.asset_id == DEFAULT_ASSET_ID,
-            models_table.c.version == DEFAULT_MODEL_VERSION
-        )
-        if not connection.execute(stmt_check_model).fetchone():
-            stmt_insert_model = insert(models_table).values(
-                id=uuid.uuid4(), asset_id=DEFAULT_ASSET_ID, version=DEFAULT_MODEL_VERSION,
-                path=MODEL_RELATIVE_PATH, is_active=True, metrics={"mape": 0.0},
-                model_type=DEFAULT_MODEL_TYPE
-            )
-            connection.execute(stmt_insert_model)
-            print(f"Inserted active model {DEFAULT_MODEL_VERSION} for asset {DEFAULT_ASSET_ID}.")
-        else:
-            print(f"Model {DEFAULT_MODEL_VERSION} for asset {DEFAULT_ASSET_ID} already exists.")
+            if existing_asset:
+                print(f"Default asset '{DEFAULT_ASSET_ID}' already exists. Skipping creation.")
+            else:
+                print(f"Creating default asset: '{DEFAULT_ASSET_ID}'")
+                new_asset = Asset(
+                    id=DEFAULT_ASSET_ID,
+                    name=DEFAULT_ASSET_NAME,
+                    description="Default asset created automatically on initial setup.",
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
+                )
+                session.add(new_asset)
+                session.commit()
+                print("Default asset created successfully.")
 
-        connection.commit()
-        print("--- Initial data insertion complete ---")
+    except Exception as e:
+        print(f"An error occurred during data seeding: {e}")
+        # In a real production environment, you might want to handle this more robustly.
+        sys.exit(1)
+
+    print("--- Initial data seeder finished ---")
 
 if __name__ == "__main__":
-    insert_initial_data()
-
+    main()

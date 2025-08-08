@@ -42,7 +42,7 @@ function ModelList() {
     }
   };
 
-  if (loading && models.length === 0) {
+  if (loading) {
     return <div className="loading-message">Loading models...</div>;
   }
 

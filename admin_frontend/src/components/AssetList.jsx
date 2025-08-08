@@ -83,8 +83,12 @@ function AssetList() {
         }
     };
 
-    if (loading && !assets.length) {
+    if (loading) {
         return <CircularProgress />;
+    }
+
+    if (error) {
+        return <Alert severity="error">{error}</Alert>;
     }
 
     return (

@@ -78,8 +78,37 @@ function ApiKeyList() { // Remove apiKey prop
     return <div className="loading-message">Loading API Keys...</div>;
   }
 
+  // After loading, if there's an error, show it.
   if (error) {
     return <div className="error-message">Failed to load API Keys: {error.message}</div>;
+  }
+
+  // After loading and no error, if there are no keys, show a clear message.
+  if (apiKeys.length === 0) {
+    return (
+      <div>
+        <h2>API Key Management</h2>
+        <h3>Create New Key</h3>
+        <form onSubmit={handleCreateKey} style={{ marginBottom: '20px' }}>
+          <input
+            type="text"
+            placeholder="Key Description (optional)"
+            value={newKeyDescription}
+            onChange={(e) => setNewKeyDescription(e.target.value)}
+            style={{ padding: '8px', marginRight: '10px', borderRadius: '4px', border: '1px solid #ccc' }}
+          />
+          <button type="submit" style={{ padding: '8px 15px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Create Key</button>
+        </form>
+        {generatedKey && (
+          <div style={{ backgroundColor: '#e9f7ef', border: '1px solid #d0e9da', padding: '10px', borderRadius: '5px', marginBottom: '20px' }}>
+            <strong>New key generated (please save, it is shown only once):</strong><br/>
+            <code>{generatedKey}</code>
+          </div>
+        )}
+        <h3>Existing Keys</h3>
+        <p>No API keys found. Use the form above to create your first one.</p>
+      </div>
+    );
   }
 
   return (

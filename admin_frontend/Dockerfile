@@ -22,5 +22,8 @@ FROM nginx:stable-alpine
 # Copy the build output from the 'build' stage to Nginx's web server directory
 COPY --from=build /app/dist /usr/share/nginx/html
 
+# Copy our custom Nginx configuration to overwrite the default
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 # Expose the default Nginx port
 EXPOSE 80

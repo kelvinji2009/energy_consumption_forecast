@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 import io
 import boto3 # Import boto3
 from typing import Any
+import uuid # Import uuid for key management
+import bcrypt # Import bcrypt for key management
 
 import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -20,7 +22,7 @@ sys.path.append(PROJECT_ROOT)
 from sqlalchemy import select
 from sqlalchemy.orm import Session # Import Session
 from database.database import engine, Model, ApiKey, Asset # Import Model, ApiKey, Asset
-from api_server.admin_api import router as admin_router
+from api_server.admin_api import router as admin_router, ApiKeyCreate, ApiKeyCreateResponse, ApiKeyResponse
 
 # Import Darts, this works for both 'darts' and 'u8darts'
 from darts import TimeSeries
@@ -95,8 +97,25 @@ class ModelInfoResponse(BaseModel):
 
 
 # --- Lifespan, App, Security setup ---
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     print("[Lifespan] Startup event triggered.")
+    # Create S3 bucket if it doesn't exist
+    try:
+        s3_client = get_s3_client()
+        # Check if the bucket exists
+        try:
+            s3_client.head_bucket(Bucket=S3_BUCKET_NAME)
+            print(f"S3 bucket '{S3_BUCKET_NAME}' already exists.")
+        except Exception as e:
+            # If head_bucket fails, it likely means the bucket doesn't exist
+            print(f"S3 bucket '{S3_BUCKET_NAME}' not found. Creating it...")
+            s3_client.create_bucket(Bucket=S3_BUCKET_NAME)
+            print(f"S3 bucket '{S3_BUCKET_NAME}' created successfully.")
+    except Exception as e:
+        print(f"FATAL: Could not connect to or create S3 bucket. Error: {e}")
+        # In a real production scenario, you might want to exit or handle this more gracefully.
+
     app.state.model_cache = {}
     yield
     print("[Lifespan] Shutdown event triggered.")
@@ -150,6 +169,45 @@ async def get_asset_models(asset_id: str, db: Session = Depends(get_db)):
     models = db.execute(stmt).scalars().all()
     return models
 
+# --- API Key Endpoints (Copied from admin_api.py to ensure they are registered) ---
+@app.post("/admin/api-keys", response_model=ApiKeyCreateResponse, status_code=status.HTTP_201_CREATED, tags=["Admin Operations"])
+def create_api_key(key_create: ApiKeyCreate, db: Session = Depends(get_db)):
+    new_key_str = str(uuid.uuid4())
+    hashed_key = bcrypt.hashpw(new_key_str.encode('utf-8'), bcrypt.gensalt())
+    key_hash = hashed_key.decode('utf-8')
+    new_api_key = ApiKey(
+        key_hash=key_hash,
+        description=key_create.description,
+        is_active=True,
+        created_at=datetime.now(datetime.timezone.utc)
+    )
+    db.add(new_api_key)
+    db.commit()
+    db.refresh(new_api_key)
+    return ApiKeyCreateResponse(
+        id=new_api_key.id,
+        key_hash=new_api_key.key_hash,
+        key=new_key_str,
+        description=new_api_key.description,
+        is_active=new_api_key.is_active,
+        created_at=new_api_key.created_at,
+        expires_at=new_api_key.expires_at
+    )
+
+@app.get("/admin/api-keys", response_model=List[ApiKeyResponse], tags=["Admin Operations"], dependencies=[Depends(verify_api_key)])
+def read_api_keys(db: Session = Depends(get_db)):
+    keys = db.query(ApiKey).all()
+    return keys
+
+@app.delete("/admin/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Admin Operations"])
+def delete_api_key(key_id: uuid.UUID, db: Session = Depends(get_db)):
+    key_record = db.query(ApiKey).filter(ApiKey.id == key_id).first()
+    if key_record is None:
+        raise HTTPException(status_code=404, detail="API Key not found.")
+    db.delete(key_record)
+    db.commit()
+    return
+
 # --- API Endpoints with Bulletproof Code ---
 
 @app.post("/assets/{asset_id}/predict", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
@@ -187,65 +245,9 @@ def predict(asset_id: str, request: PredictionRequest, http_request: Request):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
-# @app.post("/assets/{asset_id}/detect_anomalies", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
-# def detect_anomalies(asset_id: str, request: AnomalyDetectionRequest, http_request: Request):
-#     print(f"\n--- Received anomaly detection request for asset: {asset_id} ---")
-#     model_cache_entry = http_request.app.state.model_cache.get(asset_id)
-#     if not (model_cache_entry and model_cache_entry.get('model') and model_cache_entry.get('detector')):
-#         raise HTTPException(status_code=503, detail=f"Model or detector not available for asset '{asset_id}'.")
-#         
-#     model, detector, scaler = model_cache_entry['model'], model_cache_entry['detector'], model_cache_entry.get('scaler')
-#     
-#     try:
-#         series_to_detect = _create_timeseries_from_request(request.data_stream)
-#         input_chunk_length = len(model.lags['target'])
-#         
-#         if len(series_to_detect) <= input_chunk_length:
-#              raise ValueError(f"Data stream length must be > model's required input length ({input_chunk_length}).")
-#
-#         series_scaled = scaler.transform(series_to_detect) if scaler else series_to_detect
-#         
-#         full_covariates = datetime_attribute_timeseries(series_scaled, "hour", True).stack(datetime_attribute_timeseries(series_scaled, "day_of_week", True)).astype(np.float32)
-#         
-#         historical_forecasts_scaled = model.historical_forecasts(series=series_scaled, future_covariates=full_covariates, start=input_chunk_length, forecast_horizon=1, stride=1, retrain=False, verbose=False)
-#         
-#         actual_values_aligned = series_scaled.slice_intersect(historical_forecasts_scaled)
-#         residuals_scaled = actual_values_aligned - historical_forecasts_scaled
-#         residuals_ts = TimeSeries.from_series(pd.Series(np.abs(residuals_scaled.values().flatten()), index=residuals_scaled.time_index), freq='h')
-#         
-#         anomalies_ts = detector.detect(residuals_ts)
-#         print("Anomaly detection successful.")
-#         
-#         # Bulletproof Series creation and filtering
-#         anomalies_series = pd.Series(anomalies_ts.values().flatten(), index=anomalies_ts.time_index)
-#         anomaly_timestamps = anomalies_series[anomalies_series == 1].index
-#         
-#         anomalies_list = []
-#         if not anomaly_timestamps.empty:
-#             historical_forecasts_unscaled = scaler.inverse_transform(historical_forecasts_scaled) if scaler else historical_forecasts_scaled
-#             
-#             original_values_series = pd.Series(series_to_detect.values().flatten(), index=series_to_detect.time_index)
-#             predicted_values_series = pd.Series(historical_forecasts_unscaled.values().flatten(), index=historical_forecasts_unscaled.time_index)
-#
-#             for ts in anomaly_timestamps:
-#                 original_value = original_values_series.get(ts)
-#                 predicted_value = predicted_values_series.get(ts)
-#                 if original_value is not None and predicted_value is not None:
-#                     reason = (f"Value ({original_value:.2f}) is significantly higher than predicted ({predicted_value:.2f})." if original_value > predicted_value else f"Value ({original_value:.2f}) is significantly lower than predicted ({predicted_value:.2f}).")
-#                     anomalies_list.append(AnomalyDataPoint(timestamp=ts, value=original_value, reason=reason))
-#         
-#         print(f"Found {len(anomalies_list)} anomalies.")
-#         return AnomalyDetectionResponse(asset_id=asset_id, anomalies=anomalies_list)
-#         
-#     except Exception as e:
-#         import traceback
-#         traceback.print_exc()
-#         raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
-
 @app.post("/assets/{asset_id}/predict_from_csv", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
 async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), forecast_horizon: int = Form(168), model_id: int = Form(...), db: Session = Depends(get_db)):
-    print(f"""
-    --- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} using model ID: {model_id} ---""")
+    print(f"--- Received prediction request for asset: {asset_id} from CSV with horizon: {forecast_horizon} using model ID: {model_id} ---")
     
     # 0. Fetch model metadata from DB first
     model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
@@ -257,11 +259,6 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
     model_key = f"model_{model_id}"
 
     if model_key not in model_cache:
-        # Fetch model paths from DB
-        # model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
-        # if not model_record:
-        #     raise HTTPException(status_code=404, detail=f"Model with ID {model_id} not found for asset {asset_id}.")
-
         try:
             s3_client = get_s3_client()
             model_obj = _load_artifact_from_s3(model_record.model_path, s3_client)
@@ -562,7 +559,7 @@ async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: st
         past_covs = None
         if model_record.model_type == "TFT": # Check model type from DB record
             past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
-            past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
+            past_cov_df['timestamp'] = pd.to_datetime(_df['timestamp'])
             past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", ['production', 'temp', 'humidity'], freq='h').astype(np.float32)
             past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
 
@@ -655,7 +652,7 @@ async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data
         past_covs = None
         if model_record.model_type == "TFT":
             past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
-            past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
+            past_cov_df['timestamp'] = pd.to_datetime(_df['timestamp'])
             past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", ['production_units', 'temperature_celsius', 'humidity_percent'], freq='h').astype(np.float32)
             past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
 
