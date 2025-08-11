@@ -110,18 +110,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: >
-      bash -c "
-        echo 'Waiting for database to be ready...' &&
-        alembic upgrade head &&
-        echo 'Database migration complete.' &&
-        echo '--- TRUNCATING API KEYS TABLE ---' &&
-        echo 'TRUNCATE TABLE api_keys RESTART IDENTITY CASCADE;' | psql "${DATABASE_URL}" &&
-        echo 'API keys table truncated.' &&
-        echo '--- GENERATING INITIAL API KEY ---' &&
-        python -m tools.create_initial_key &&
-        echo '--- INITIALIZATION COMPLETE ---'
-      "
+    command: bash /app/tools/init_db.sh
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - PGPASSWORD=${POSTGRES_PASSWORD:-password} # psql command needs this

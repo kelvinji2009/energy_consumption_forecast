@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the entire project's source code into the working directory
 COPY . .
+RUN chmod +x /app/tools/init_db.sh
 
 # Expose the port the API server will run on
 EXPOSE 8000
