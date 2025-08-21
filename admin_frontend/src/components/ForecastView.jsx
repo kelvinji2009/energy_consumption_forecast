@@ -624,62 +624,88 @@ function ForecastView() {
           </button>
         </div>
 
-        {chartData.datasets.length > 0 && (
-          <div style={{ position: 'relative', width: '100%', height: '400px', marginTop: '2rem' }}>
-            <Line 
-              ref={chartRef} 
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                  x: {
-                    type: 'time',
-                    time: {
-                      unit: 'day',
-                      tooltipFormat: 'MMM dd, yyyy HH:mm',
-                    },
-                    title: {
-                      display: true,
-                      text: safeT('forecast.timestamp') || '时间戳'
-                    }
-                  },
-                  y: {
-                    title: {
-                      display: true,
-                      text: safeT('forecast.energyKwh') || '能耗 (kWh)'
-                    }
-                  }
-                },
-                plugins: {
-                  legend: {
-                    position: 'top',
+        <div style={{ position: 'relative', width: '100%', height: '400px', marginTop: '2rem' }}>
+          <Line 
+            ref={chartRef} 
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  type: 'time',
+                  time: {
+                    unit: 'day',
+                    tooltipFormat: 'MMM dd, yyyy HH:mm',
                   },
                   title: {
                     display: true,
-                    text: safeT('forecast.chartTitle') || '能耗预测图表'
-                  },
-                  zoom: {
-                    pan: {
-                      enabled: true,
-                      mode: 'x',
-                    },
-                    zoom: {
-                      wheel: {
-                        enabled: true,
-                      },
-                      pinch: {
-                        enabled: true
-                      },
-                      mode: 'x',
-                    }
+                    text: safeT('forecast.timestamp') || '时间戳'
                   }
                 },
-                animation: false,
-              }} 
-              data={chartData} 
-            />
-          </div>
-        )}
+                y: {
+                  title: {
+                    display: true,
+                    text: safeT('forecast.energyKwh') || '能耗 (kWh)'
+                  }
+                }
+              },
+              plugins: {
+                legend: {
+                  position: 'top',
+                },
+                title: {
+                  display: true,
+                  text: safeT('forecast.chartTitle') || '能耗预测图表'
+                },
+                zoom: {
+                  pan: {
+                    enabled: true,
+                    mode: 'x',
+                  },
+                  zoom: {
+                    wheel: {
+                      enabled: true,
+                    },
+                    pinch: {
+                      enabled: true
+                    },
+                    mode: 'x',
+                  }
+                }
+              },
+              animation: false,
+            }} 
+            data={chartData.datasets.length > 0 ? chartData : {
+              datasets: [{
+                label: '等待预测结果...',
+                data: [],
+                borderColor: '#e2e8f0',
+                backgroundColor: 'rgba(226, 232, 240, 0.1)',
+                pointRadius: 0,
+                type: 'line',
+              }]
+            }} 
+          />
+          {chartData.datasets.length === 0 && (
+            <div style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              textAlign: 'center',
+              color: '#a0aec0',
+              fontSize: '1.1rem',
+              fontWeight: '500',
+              pointerEvents: 'none'
+            }}>
+              <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📊</div>
+              <div>配置参数并点击预测后，结果将在此显示</div>
+              <div style={{ fontSize: '0.9rem', marginTop: '0.5rem', color: '#cbd5e0' }}>
+                支持历史数据和预测数据的可视化分析
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
