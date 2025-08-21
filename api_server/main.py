@@ -426,29 +426,84 @@ async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: 
         df['timestamp'] = pd.to_datetime(df['timestamp'], infer_datetime_format=True)
         df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         
-        historical_data = [TimeSeriesDataPoint(**row) for index, row in df.iterrows()]
+        # --- 数据长度验证 ---
+        data_length = len(df)
+        print(f"[Validation] Data length: {data_length} hours")
+        
+        # 根据模型类型设置最小数据要求
+        min_required_hours = {
+            'LightGBM': 48,  # LightGBM需要至少48小时数据
+            'TFT': 72,       # TFT需要更多数据
+            'LSTM': 48,      # LSTM需要48小时
+            'TiDE': 48       # TiDE需要48小时
+        }
+        
+        min_hours = min_required_hours.get(model_record.model_type, 48)
+        if data_length < min_hours:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data for {model_record.model_type} anomaly detection. Required: at least {min_hours} hours, provided: {data_length} hours. Please provide more historical data."
+            )
+        
+        historical_data = [
+            TimeSeriesDataPoint(
+                timestamp=row['timestamp'], 
+                value=row['value'],
+                temp=row.get('temp'),
+                production=row.get('production'),
+                humidity=row.get('humidity')
+            ) for index, row in df.iterrows()
+        ]
 
     except Exception as e:
+        # Catch the specific HTTPException and re-raise it
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=400, detail=f"Error processing CSV file: {e}")
 
     try:
         series = _create_timeseries_from_request(historical_data)
+        print(f"[Debug] Series length: {len(series)}, start: {series.start_time()}, end: {series.end_time()}")
+        
         series_scaled = scaler.transform(series) if scaler else series
 
+        # --- 改进协变量处理 ---
         past_covs = None
         if model_record.model_type == "TFT":
-            past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
-            past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
-            past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", ['production_units', 'temperature_celsius', 'humidity_percent'], freq='h').astype(np.float32)
-            past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
+            try:
+                past_cov_df = pd.DataFrame([d.model_dump() for d in historical_data])
+                past_cov_df['timestamp'] = pd.to_datetime(past_cov_df['timestamp'])
+                
+                # 检查协变量列是否存在，使用实际存在的列名
+                available_cov_cols = []
+                for col in ['production', 'temp', 'humidity']:
+                    if col in past_cov_df.columns and past_cov_df[col].notna().any():
+                        available_cov_cols.append(col)
+                
+                if available_cov_cols:
+                    past_covs = TimeSeries.from_dataframe(past_cov_df, "timestamp", available_cov_cols, freq='h').astype(np.float32)
+                    past_covs = scaler_past_cov.transform(past_covs) if scaler_past_cov else past_covs
+                    print(f"[Debug] Past covariates created with columns: {available_cov_cols}")
+                else:
+                    print("[Warning] No valid past covariates found, proceeding without them")
+            except Exception as cov_e:
+                print(f"[Warning] Failed to create past covariates: {cov_e}, proceeding without them")
+                past_covs = None
 
         future_covs = None
         if model_record.model_type in ["TFT", "TiDE", "LSTM", "LightGBM"]:
-            future_covs_raw = datetime_attribute_timeseries(series_scaled, attribute="hour", one_hot=True).stack(
-                datetime_attribute_timeseries(series_scaled, attribute="day_of_week", one_hot=True)
-            ).astype(np.float32)
-            future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
+            try:
+                future_covs_raw = datetime_attribute_timeseries(series_scaled, attribute="hour", one_hot=True).stack(
+                    datetime_attribute_timeseries(series_scaled, attribute="day_of_week", one_hot=True)
+                ).astype(np.float32)
+                future_covs = scaler_cov.transform(future_covs_raw) if scaler_cov else future_covs_raw
+                print(f"[Debug] Future covariates created, length: {len(future_covs)}")
+            except Exception as cov_e:
+                print(f"[Warning] Failed to create future covariates: {cov_e}, proceeding without them")
+                future_covs = None
 
+        # --- 改进异常检测调用 ---
+        print(f"[Debug] Calling anomaly detection with series length: {len(series_scaled)}")
         anomalies_df = run_anomaly_detection(
             model=model,
             detector=detector,
@@ -459,8 +514,10 @@ async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: 
         )
         
         print("--- Anomalies DataFrame (before sending to frontend) ---")
-        print(anomalies_df.head())
-        print(anomalies_df['timestamp'].dtype)
+        print(f"Anomalies found: {len(anomalies_df)}")
+        if len(anomalies_df) > 0:
+            print(anomalies_df.head())
+            print(f"Timestamp dtype: {anomalies_df['timestamp'].dtype}")
 
         anomalies_data = [AnomalyDataPoint(timestamp=row['timestamp'], value=row['value']) for index, row in anomalies_df.iterrows()]
         
@@ -469,7 +526,21 @@ async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: 
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {e}")
+        
+        # 提供更详细的错误信息
+        error_msg = str(e)
+        if "minimum prediction input time index requirements" in error_msg:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Model input requirements not met. The {model_record.model_type} model requires a specific time series structure. Please ensure your data has consistent hourly intervals and sufficient length (at least {min_required_hours.get(model_record.model_type, 48)} hours)."
+            )
+        elif "index" in error_msg and "out of bounds" in error_msg:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Data dimension mismatch. The model expects specific input features. Please check that your CSV contains the required columns: timestamp, value, and optionally temp, production, humidity."
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Anomaly detection failed: {error_msg}")
 
 @app.post("/assets/{asset_id}/predict_from_s3", response_model=PredictionResponse, dependencies=[Depends(verify_api_key)])
 async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: str = Query(...), forecast_horizon: int = Query(168), model_id: int = Query(...), db: Session = Depends(get_db)):
