@@ -33,75 +33,43 @@ function ApiDocumentation() {
       title: safeT('api.assets'),
       icon: '🏭',
       endpoints: [
-      {
-        title: '🎯 模型训练',
-        apis: [
-          {
-            method: 'POST',
-            endpoint: '/admin/training-jobs',
-            description: '启动新的模型训练任务',
-            params: [
-              { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
-              { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
-              { name: 'description', type: 'string', required: false, description: '训练任务描述' }
-            ],
-            response: {
-              task_id: 'string',
-              status: 'PENDING',
-              message: 'Training job started successfully'
-            }
-          },
-          {
-            method: 'POST',
-            endpoint: '/admin/training-jobs-from-csv',
-            description: '使用CSV文件启动模型训练任务',
-            params: [
-              { name: 'file', type: 'file', required: true, description: 'CSV训练数据文件' },
-              { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
-              { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
-              { name: 'description', type: 'string', required: false, description: '训练任务描述' }
-            ],
-            response: {
-              task_id: 'string',
-              status: 'PENDING',
-              message: 'Training job started successfully'
-            }
-          },
-          {
-            method: 'GET',
-            endpoint: '/admin/tasks/{task_id}/status',
-            description: '查询训练任务状态',
-            params: [
-              { name: 'task_id', type: 'string', required: true, description: '任务ID' }
-            ],
-            response: {
-              task_id: 'string',
-              status: 'COMPLETED | PENDING | FAILED',
-              progress: 'number',
-              result: 'object'
-            }
-          },
-          {
-            method: 'GET',
-            endpoint: '/admin/assets/{asset_id}/models',
-            description: '获取指定资产的所有模型',
-            params: [
-              { name: 'asset_id', type: 'string', required: true, description: '资产ID' }
-            ],
-            response: [
+        {
+          method: 'GET',
+          path: '/admin/assets',
+          description: '获取资产列表',
+          parameters: [],
+          response: {
+            type: 'array',
+            example: [
               {
-                id: 'number',
-                model_type: 'string',
-                model_version: 'string',
-                status: 'string',
-                description: 'string',
-                metrics: 'object',
-                created_at: 'datetime'
+                id: 'production_line_A',
+                name: '生产线 A',
+                description: '主要生产线设备',
+                model_count: 2,
+                created_at: '2024-01-01T00:00:00Z'
               }
             ]
           }
-        ]
-      },
+        },
+        {
+          method: 'POST',
+          path: '/admin/assets',
+          description: '创建新资产',
+          parameters: [
+            { name: 'id', type: 'string', required: true, description: '资产ID' },
+            { name: 'name', type: 'string', required: true, description: '资产名称' },
+            { name: 'description', type: 'string', required: false, description: '资产描述' }
+          ],
+          response: {
+            type: 'object',
+            example: {
+              id: 'production_line_B',
+              name: '生产线 B',
+              description: '新建生产线设备',
+              created_at: '2024-01-01T00:00:00Z'
+            }
+          }
+        },
         {
           method: 'PUT',
           path: '/admin/assets/{asset_id}',
@@ -303,40 +271,83 @@ function ApiDocumentation() {
       endpoints: [
         {
           method: 'POST',
-          path: '/admin/train_model',
-          description: '训练新模型',
+          path: '/admin/training-jobs',
+          description: '启动新的模型训练任务',
           parameters: [
             { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
-            { name: 'model_type', type: 'string', required: true, description: '模型类型 (TFT, LSTM, LGBM, TIDE)' },
-            { name: 'file', type: 'file', required: false, description: '训练数据CSV文件' },
-            { name: 's3_data_path', type: 'string', required: false, description: 'S3训练数据路径' }
+            { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
+            { name: 'description', type: 'string', required: false, description: '训练任务描述' }
           ],
           response: {
             type: 'object',
             example: {
-              task_id: 'abc123',
-              message: '模型训练任务已启动',
-              status: 'PENDING'
+              task_id: 'abc123-def456-ghi789',
+              status: 'PENDING',
+              message: 'Training job started successfully'
+            }
+          }
+        },
+        {
+          method: 'POST',
+          path: '/admin/training-jobs-from-csv',
+          description: '使用CSV文件启动模型训练任务',
+          parameters: [
+            { name: 'file', type: 'file', required: true, description: 'CSV训练数据文件' },
+            { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
+            { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
+            { name: 'description', type: 'string', required: false, description: '训练任务描述' }
+          ],
+          response: {
+            type: 'object',
+            example: {
+              task_id: 'abc123-def456-ghi789',
+              status: 'PENDING',
+              message: 'Training job started successfully'
             }
           }
         },
         {
           method: 'GET',
-          path: '/admin/task_status/{task_id}',
-          description: '获取训练任务状态',
+          path: '/admin/tasks/{task_id}/status',
+          description: '查询训练任务状态',
           parameters: [
             { name: 'task_id', type: 'string', required: true, description: '任务ID（路径参数）' }
           ],
           response: {
             type: 'object',
             example: {
-              task_id: 'abc123',
-              status: 'SUCCESS',
+              task_id: 'abc123-def456-ghi789',
+              status: 'COMPLETED',
+              progress: 100,
               result: {
                 model_id: 1,
-                mape: 0.05
+                mape: 0.0932,
+                model_path: 'production_line_A/1_20250821032849/model.joblib'
               }
             }
+          }
+        },
+        {
+          method: 'GET',
+          path: '/admin/assets/{asset_id}/models',
+          description: '获取指定资产的所有模型',
+          parameters: [
+            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' }
+          ],
+          response: {
+            type: 'array',
+            example: [
+              {
+                id: 1,
+                asset_id: 'production_line_A',
+                model_type: 'LightGBM',
+                model_version: '20250821032849',
+                status: 'COMPLETED',
+                description: 'LightGBM model trained on 2025-08-21',
+                metrics: { mape: 9.324668638609689 },
+                created_at: '2025-08-21T03:28:11.193719Z'
+              }
+            ]
           }
         }
       ]
