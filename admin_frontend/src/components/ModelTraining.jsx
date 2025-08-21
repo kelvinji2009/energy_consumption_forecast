@@ -1,387 +1,364 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../apiClient';
 import { useLanguage } from '../contexts/LanguageContext';
+import CustomFileInput from './CustomFileInput';
 
-function ModelTraining({ activeTask, setActiveTask }) {
-    const { t } = useLanguage();
-    const [assets, setAssets] = useState([]);
-    const [selectedAsset, setSelectedAsset] = useState('');
-    const [s3DataPath, setS3DataPath] = useState('');
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [dataInputMethod, setDataInputMethod] = useState('upload');
-    const [nEpochs, setNEpochs] = useState(20);
-    const [error, setError] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [selectedAlgorithm, setSelectedAlgorithm] = useState('LightGBM');
+function ModelTraining() {
+  const { t, language } = useLanguage();
+  const [assets, setAssets] = useState([]);
+  const [selectedAsset, setSelectedAsset] = useState('');
+  const [modelType, setModelType] = useState('tft');
+  const [dataInputMethod, setDataInputMethod] = useState('upload');
+  const [s3DataPath, setS3DataPath] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileName, setFileName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-    // 安全翻译函数
-    const safeT = (key) => {
-        if (typeof t === 'function') {
-            return t(key);
+  // 改进的翻译函数，确保能够正确获取当前语言的翻译
+  const getText = (key) => {
+    if (!t || typeof t !== 'object') {
+      return key;
+    }
+    
+    // 支持嵌套键，如 'training.title'
+    const keys = key.split('.');
+    let result = t;
+    for (const k of keys) {
+      if (result && typeof result === 'object' && k in result) {
+        result = result[k];
+      } else {
+        return key;
+      }
+    }
+    
+    return result || key;
+  };
+
+  useEffect(() => {
+    const fetchAssets = async () => {
+      try {
+        const data = await apiClient('/admin/assets');
+        setAssets(data);
+        if (data.length > 0) {
+          setSelectedAsset(prev => prev || data[0].id);
         }
-        // 提供默认的中文文本
-        const defaultTexts = {
-            'training.algorithms.LightGBM.label': 'LightGBM',
-            'training.algorithms.LightGBM.desc': '轻量级梯度提升机，适合快速训练和高精度预测',
-            'training.algorithms.TiDE.label': 'TiDE',
-            'training.algorithms.TiDE.desc': '时间序列密集编码器，专为长期预测设计',
-            'training.algorithms.LSTM.label': 'LSTM',
-            'training.algorithms.LSTM.desc': '长短期记忆网络，擅长处理序列数据',
-            'training.algorithms.TFT.label': 'TFT',
-            'training.algorithms.TFT.desc': '时间融合变换器，支持多变量时间序列预测',
-            'training.algorithms.TFT (No Past Covariates).label': 'TFT (无历史协变量)',
-            'training.algorithms.TFT (No Past Covariates).desc': '简化版TFT，不使用历史协变量',
-            'training.title': '模型训练',
-            'training.selectAsset': '选择资产',
-            'training.selectAlgorithm': '选择算法',
-            'training.dataInputMethod': '数据输入方式',
-            'training.uploadCsv': '上传CSV文件',
-            'training.s3Path': 'S3路径',
-            'training.trainingDataFile': '训练数据文件',
-            'training.fileSelected': '已选择文件',
-            'training.s3DataPath': 'S3数据路径',
-            'training.s3Placeholder': '例如: s3://bucket/path/to/data.csv',
-            'training.epochs': '训练轮数',
-            'training.epochsHint': '建议值：LightGBM 10-50轮，深度学习模型 20-100轮',
-            'training.starting': '正在启动...',
-            'training.taskRunning': '任务运行中...',
-            'training.noAssets': '没有可用资产',
-            'training.startTraining': '开始训练',
-            'training.errors.failedToLoadAssets': '加载资产失败',
-            'training.errors.noFile': '请选择文件',
-            'training.errors.noS3Path': '请输入S3路径',
-            'training.errors.failedToStart': '启动训练失败'
-        };
-        return defaultTexts[key] || key;
+      } catch (err) {
+        console.error("Failed to fetch assets:", err);
+        setError(getText('errors.fetchAssets'));
+      }
     };
+    fetchAssets();
+  }, [language]); // 添加language依赖，确保语言切换时重新获取资产列表
 
-    const algorithms = [
-        { value: 'LightGBM', label: safeT('training.algorithms.LightGBM.label'), description: safeT('training.algorithms.LightGBM.desc') },
-        { value: 'TiDE', label: safeT('training.algorithms.TiDE.label'), description: safeT('training.algorithms.TiDE.desc') },
-        { value: 'LSTM', label: safeT('training.algorithms.LSTM.label'), description: safeT('training.algorithms.LSTM.desc') },
-        { value: 'TFT', label: safeT('training.algorithms.TFT.label'), description: safeT('training.algorithms.TFT.desc') },
-        { value: 'TFT (No Past Covariates)', label: safeT('training.algorithms.TFT (No Past Covariates).label'), description: safeT('training.algorithms.TFT (No Past Covariates).desc') }
-    ];
+  const handleFileChange = (file) => {
+    if (file && file.type === "text/csv") {
+      setSelectedFile(file);
+      setFileName(file.name);
+      setError(null);
+    } else {
+      setSelectedFile(null);
+      setFileName('');
+      setError(getText('errors.invalidFile'));
+    }
+  };
 
-    useEffect(() => {
-        const fetchAssets = async () => {
-            try {
-                const data = await apiClient('/admin/assets');
-                setAssets(data);
-                if (data.length > 0) {
-                    setSelectedAsset(data[0].id);
-                }
-            } catch (err) {
-                console.error("Failed to fetch assets:", err);
-                setError(safeT('training.errors.failedToLoadAssets'));
-            }
-        };
-        fetchAssets();
-    }, [safeT]);
+  const handleTrain = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
 
-    const handleFileChange = (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            setSelectedFile(file);
-        }
-    };
+    if (!selectedAsset) {
+      setError(getText('errors.selectAsset'));
+      setLoading(false);
+      return;
+    }
 
-    const handleSubmit = async (event) => {
-        event.preventDefault();
-        setError(null);
-        setIsLoading(true);
+    let url = '';
+    const options = { method: 'POST' };
 
-        try {
-            let data;
-            if (dataInputMethod === 'upload') {
-                if (!selectedFile) {
-                    throw new Error(safeT('training.errors.noFile'));
-                }
-                const formData = new FormData();
-                formData.append('asset_id', selectedAsset);
-                formData.append('model_type', selectedAlgorithm);
-                formData.append('n_epochs', nEpochs);
-                formData.append('description', `UI训练任务：${selectedAsset} - ${selectedAlgorithm}`);
-                formData.append('file', selectedFile);
-                
-                data = await apiClient('/admin/training-jobs-from-csv', {
-                    method: 'POST',
-                    body: formData,
-                });
+    if (dataInputMethod === 'upload') {
+      if (!selectedFile) {
+        setError(getText('errors.selectFile'));
+        setLoading(false);
+        return;
+      }
+      const formData = new FormData();
+      formData.append('model_type', modelType);
+      formData.append('file', selectedFile);
+      options.body = formData;
+      url = `/assets/${selectedAsset}/train_from_csv`;
 
-            } else {
-                if (!s3DataPath) {
-                    throw new Error(safeT('training.errors.noS3Path'));
-                }
-                const jobRequest = {
-                    asset_id: selectedAsset,
-                    s3_data_path: s3DataPath,
-                    model_type: selectedAlgorithm,
-                    description: `UI-S3训练任务：${selectedAsset} - ${selectedAlgorithm}`,
-                    n_epochs: nEpochs,
-                };
-                data = await apiClient('/admin/training-jobs', {
-                    method: 'POST',
-                    body: JSON.stringify(jobRequest),
-                });
-            }
-            
-            setActiveTask({ id: data.task_id, status: data.status });
-            setS3DataPath('');
-            setSelectedFile(null);
+    } else if (dataInputMethod === 's3') {
+      if (!s3DataPath) {
+        setError(getText('errors.enterS3Path'));
+        setLoading(false);
+        return;
+      }
+      const params = new URLSearchParams({
+        s3_data_path: s3DataPath,
+        model_type: modelType,
+      });
+      url = `/assets/${selectedAsset}/train_from_s3?${params.toString()}`;
+    }
 
-        } catch (err) {
-            console.error('Training job error:', err);
-            let errorMessage = '发生了意外错误。';
-            
-            if (err.message) {
-                errorMessage = err.message;
-            } else if (typeof err === 'string') {
-                errorMessage = err;
-            } else if (err.detail) {
-                errorMessage = err.detail;
-            } else {
-                errorMessage = JSON.stringify(err);
-            }
-            
-            setError(`${safeT('training.errors.failedToStart')}：${errorMessage}`);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    try {
+      const result = await apiClient(url, options);
+      setSuccess(getText('training.trainingStarted') + ` ${getText('training.taskId')}: ${result.task_id}`);
+    } catch (err) {
+      console.error("Training error:", err);
+      setError(getText('errors.trainingFailed') + (err.message || getText('errors.unexpected')));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const selectedAlgorithmInfo = algorithms.find(algo => algo.value === selectedAlgorithm);
+  return (
+    <div style={{ padding: '2rem' }}>
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(10px)',
+        borderRadius: '20px',
+        padding: '2rem',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+        border: '1px solid rgba(255, 255, 255, 0.2)'
+      }}>
+        <h2 style={{
+          color: '#4a5568',
+          marginBottom: '2rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '1.5rem',
+          fontWeight: '600'
+        }}>
+          🤖 {getText('training.title')}
+        </h2>
 
-    return (
-        <div style={{ padding: '0', fontFamily: 'inherit' }}>
-            <h2 style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                {safeT('training.title')}
-            </h2>
-            
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                {/* 资产选择 */}
-                <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        {safeT('training.selectAsset')}
-                    </label>
-                    <select 
-                        value={selectedAsset} 
-                        onChange={e => setSelectedAsset(e.target.value)} 
-                        required 
-                        disabled={isLoading || activeTask}
-                        style={{ width: '100%', padding: '0.75rem 1rem' }}
-                    >
-                        {assets.map(asset => (
-                            <option key={asset.id} value={asset.id}>
-                                {asset.name} ({asset.id})
-                            </option>
-                        ))}
-                    </select>
-                </div>
+        <div style={{ display: 'grid', gap: '1.5rem' }}>
+          <div>
+            <label style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '500',
+              color: '#4a5568',
+              fontSize: '0.9rem'
+            }}>
+              🏭 {getText('training.selectAsset')}:
+            </label>
+            <select
+              value={selectedAsset}
+              onChange={e => setSelectedAsset(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e2e8f0',
+                borderRadius: '12px',
+                fontSize: '1rem',
+                background: 'white',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              {assets.map(asset => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.name} ({asset.id})
+                </option>
+              ))}
+            </select>
+          </div>
 
-                {/* 算法选择 */}
-                <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        {safeT('training.selectAlgorithm')}
-                    </label>
-                    <select 
-                        value={selectedAlgorithm} 
-                        onChange={e => setSelectedAlgorithm(e.target.value)} 
-                        required 
-                        disabled={isLoading || activeTask}
-                        style={{ width: '100%', padding: '0.75rem 1rem' }}
-                    >
-                        {algorithms.map(algo => (
-                            <option key={algo.value} value={algo.value}>
-                                {algo.label}
-                            </option>
-                        ))}
-                    </select>
-                    {selectedAlgorithmInfo && (
-                        <small style={{ 
-                            color: '#718096', 
-                            fontSize: '0.85rem', 
-                            marginTop: '0.5rem', 
-                            display: 'block',
-                            padding: '0.5rem',
-                            background: 'rgba(102, 126, 234, 0.1)',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(102, 126, 234, 0.2)'
-                        }}>
-                            💡 {selectedAlgorithmInfo.description}
-                        </small>
-                    )}
-                </div>
+          <div>
+            <label style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '500',
+              color: '#4a5568',
+              fontSize: '0.9rem'
+            }}>
+              🧠 {getText('training.selectModelType')}:
+            </label>
+            <select
+              value={modelType}
+              onChange={e => setModelType(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e2e8f0',
+                borderRadius: '12px',
+                fontSize: '1rem',
+                background: 'white',
+                transition: 'all 0.3s ease'
+              }}
+            >
+              <option value="tft">TFT (Temporal Fusion Transformer)</option>
+              <option value="lstm">LSTM (Long Short-Term Memory)</option>
+              <option value="lgbm">LightGBM</option>
+              <option value="tide">TiDE (Time-series Dense Encoder)</option>
+            </select>
+          </div>
 
-                {/* 数据输入方式选择 */}
-                <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                        {safeT('training.dataInputMethod')}
-                    </label>
-                    <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-                        <label style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '0.5rem',
-                            padding: '0.75rem 1.5rem',
-                            background: dataInputMethod === 'upload' ? 'rgba(102, 126, 234, 0.1)' : 'rgba(255, 255, 255, 0.7)',
-                            border: `2px solid ${dataInputMethod === 'upload' ? '#667eea' : 'rgba(255, 255, 255, 0.3)'}`,
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            transition: 'all 0.3s ease'
-                        }}>
-                            <input 
-                                type="radio" 
-                                value="upload" 
-                                checked={dataInputMethod === 'upload'} 
-                                onChange={() => setDataInputMethod('upload')} 
-                                disabled={isLoading || activeTask}
-                                style={{ width: 'auto', margin: 0 }}
-                            />
-                            {safeT('training.uploadCsv')}
-                        </label>
-                        <label style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '0.5rem',
-                            padding: '0.75rem 1.5rem',
-                            background: dataInputMethod === 's3' ? 'rgba(102, 126, 234, 0.1)' : 'rgba(255, 255, 255, 0.7)',
-                            border: `2px solid ${dataInputMethod === 's3' ? '#667eea' : 'rgba(255, 255, 255, 0.3)'}`,
-                            borderRadius: '10px',
-                            cursor: 'pointer',
-                            transition: 'all 0.3s ease'
-                        }}>
-                            <input 
-                                type="radio" 
-                                value="s3" 
-                                checked={dataInputMethod === 's3'} 
-                                onChange={() => setDataInputMethod('s3')} 
-                                disabled={isLoading || activeTask}
-                                style={{ width: 'auto', margin: 0 }}
-                            />
-                            {safeT('training.s3Path')}
-                        </label>
-                    </div>
-                </div>
+          <div>
+            <label style={{
+              display: 'block',
+              marginBottom: '1rem',
+              fontWeight: '500',
+              color: '#4a5568',
+              fontSize: '0.9rem'
+            }}>
+              📁 {getText('training.dataInputMethod')}:
+            </label>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.75rem 1rem',
+                background: dataInputMethod === 'upload' ? '#667eea' : 'rgba(255, 255, 255, 0.8)',
+                color: dataInputMethod === 'upload' ? 'white' : '#4a5568',
+                borderRadius: '25px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                border: '2px solid',
+                borderColor: dataInputMethod === 'upload' ? '#667eea' : '#e2e8f0'
+              }}>
+                <input
+                  type="radio"
+                  value="upload"
+                  checked={dataInputMethod === 'upload'}
+                  onChange={() => setDataInputMethod('upload')}
+                  style={{ display: 'none' }}
+                />
+                📤 {getText('training.uploadCSV')}
+              </label>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.75rem 1rem',
+                background: dataInputMethod === 's3' ? '#667eea' : 'rgba(255, 255, 255, 0.8)',
+                color: dataInputMethod === 's3' ? 'white' : '#4a5568',
+                borderRadius: '25px',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                border: '2px solid',
+                borderColor: dataInputMethod === 's3' ? '#667eea' : '#e2e8f0'
+              }}>
+                <input
+                  type="radio"
+                  value="s3"
+                  checked={dataInputMethod === 's3'}
+                  onChange={() => setDataInputMethod('s3')}
+                  style={{ display: 'none' }}
+                />
+                ☁️ {getText('training.s3Path')}
+              </label>
+            </div>
 
-                {/* 条件数据输入 */}
-                {dataInputMethod === 'upload' ? (
-                    <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                            {safeT('training.trainingDataFile')}
-                        </label>
-                        <input 
-                            type="file" 
-                            accept=".csv" 
-                            onChange={handleFileChange} 
-                            required 
-                            disabled={isLoading || activeTask}
-                            style={{ 
-                                width: '100%', 
-                                padding: '1rem',
-                                border: '2px dashed rgba(102, 126, 234, 0.3)',
-                                background: 'rgba(102, 126, 234, 0.05)',
-                                borderRadius: '10px'
-                            }}
-                        />
-                        {selectedFile && (
-                            <div style={{ 
-                                marginTop: '0.5rem',
-                                padding: '0.5rem 1rem',
-                                background: 'rgba(72, 187, 120, 0.1)',
-                                border: '1px solid rgba(72, 187, 120, 0.2)',
-                                borderRadius: '8px',
-                                color: '#48bb78',
-                                fontSize: '0.9rem'
-                            }}>
-                                {safeT('training.fileSelected')}: {selectedFile.name}
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    <div>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                            {safeT('training.s3DataPath')}
-                        </label>
-                        <input 
-                            type="text" 
-                            value={s3DataPath} 
-                            onChange={e => setS3DataPath(e.target.value)} 
-                            placeholder={safeT('training.s3Placeholder')}
-                            required 
-                            disabled={isLoading || activeTask}
-                            style={{ width: '100%', padding: '0.75rem 1rem' }}
-                        />
-                    </div>
-                )}
-
-                {/* 训练参数 */}
-                <div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        {safeT('training.epochs')}
-                    </label>
-                    <input 
-                        type="number" 
-                        value={nEpochs} 
-                        onChange={e => setNEpochs(parseInt(e.target.value, 10))} 
-                        min="1" 
-                        max="200" 
-                        required 
-                        disabled={isLoading || activeTask}
-                        style={{ width: '100%', padding: '0.75rem 1rem' }}
-                    />
-                    <small style={{ 
-                        color: '#718096', 
-                        fontSize: '0.85rem', 
-                        marginTop: '0.5rem', 
-                        display: 'block',
-                        padding: '0.5rem',
-                        background: 'rgba(255, 193, 7, 0.1)',
-                        borderRadius: '8px',
-                        border: '1px solid rgba(255, 193, 7, 0.2)'
-                    }}>
-                        {safeT('training.epochsHint')}
-                    </small>
-                </div>
-
-                {/* 提交按钮 */}
-                <button 
-                    type="submit" 
-                    disabled={isLoading || activeTask || assets.length === 0}
-                    style={{ 
-                        padding: '1rem 2rem',
-                        fontSize: '1rem',
-                        fontWeight: '600',
-                        cursor: isLoading || activeTask || assets.length === 0 ? 'not-allowed' : 'cursor',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.5rem'
-                    }}
-                >
-                    {isLoading ? (
-                        <>
-                            <span className="pulse">⏳</span> {safeT('training.starting')}
-                        </>
-                    ) : activeTask ? (
-                        <>
-                            <span className="pulse">🔄</span> {safeT('training.taskRunning')}
-                        </>
-                    ) : assets.length === 0 ? (
-                        <>{safeT('training.noAssets')}</>
-                    ) : (
-                        <>{safeT('training.startTraining')}</>
-                    )}
-                </button>
-            </form>
-            
-            {error && (
-                <div className="error-message" style={{ marginTop: '1.5rem' }}>
-                    ❌ {error}
-                </div>
+            {dataInputMethod === 'upload' ? (
+              <div>
+                <label style={{
+                  display: 'block',
+                  marginBottom: '0.5rem',
+                  fontWeight: '500',
+                  color: '#4a5568',
+                  fontSize: '0.9rem'
+                }}>
+                  {getText('training.uploadTrainingData')}:
+                </label>
+                <CustomFileInput
+                  accept=".csv"
+                  onFileChange={handleFileChange}
+                  selectedFile={selectedFile}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '2px dashed #cbd5e0',
+                    borderRadius: '12px',
+                    background: '#f7fafc',
+                    cursor: 'pointer'
+                  }}
+                />
+              </div>
+            ) : (
+              <div>
+                <label style={{
+                  display: 'block',
+                  marginBottom: '0.5rem',
+                  fontWeight: '500',
+                  color: '#4a5568',
+                  fontSize: '0.9rem'
+                }}>
+                  {getText('training.s3PathInput')}:
+                </label>
+                <input
+                  type="text"
+                  value={s3DataPath}
+                  onChange={e => setS3DataPath(e.target.value)}
+                  placeholder="s3://bucket/path/to/data.csv"
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '12px',
+                    fontSize: '1rem',
+                    background: 'white'
+                  }}
+                />
+              </div>
             )}
+          </div>
+
+          {error && (
+            <div style={{
+              padding: '1rem',
+              background: 'rgba(254, 178, 178, 0.9)',
+              color: '#c53030',
+              borderRadius: '12px',
+              border: '1px solid #feb2b2'
+            }}>
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div style={{
+              padding: '1rem',
+              background: 'rgba(198, 246, 213, 0.9)',
+              color: '#2f855a',
+              borderRadius: '12px',
+              border: '1px solid #9ae6b4'
+            }}>
+              {success}
+            </div>
+          )}
+
+          <button
+            onClick={handleTrain}
+            disabled={loading || !assets.length}
+            style={{
+              padding: '1rem 2rem',
+              background: loading ? '#a0aec0' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '25px',
+              fontSize: '1rem',
+              fontWeight: '600',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem'
+            }}
+          >
+            {loading ? '⏳' : '🚀'} {loading ? getText('training.training') : getText('training.startTraining')}
+          </button>
         </div>
-    );
+      </div>
+    </div>
+  );
 }
 
 export default ModelTraining;

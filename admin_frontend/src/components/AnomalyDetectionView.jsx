@@ -15,6 +15,7 @@ import {
 import zoomPlugin from 'chartjs-plugin-zoom';
 import 'chartjs-adapter-date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
+import CustomFileInput from './CustomFileInput';
 
 // Register Chart.js components and plugins
 ChartJS.register(
@@ -30,7 +31,7 @@ ChartJS.register(
 );
 
 function AnomalyDetectionView() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [assets, setAssets] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState('');
   const [models, setModels] = useState([]);
@@ -44,6 +45,26 @@ function AnomalyDetectionView() {
   const [fileName, setFileName] = useState('');
   const chartRef = useRef(null);
 
+  // 改进的翻译函数，确保能够正确获取当前语言的翻译
+  const getText = (key) => {
+    if (!t || typeof t !== 'object') {
+      return key;
+    }
+    
+    // 支持嵌套键，如 'forecast.title'
+    const keys = key.split('.');
+    let result = t;
+    for (const k of keys) {
+      if (result && typeof result === 'object' && k in result) {
+        result = result[k];
+      } else {
+        return key;
+      }
+    }
+    
+    return result || key;
+  };
+
   useEffect(() => {
     const fetchAssets = async () => {
       try {
@@ -54,11 +75,11 @@ function AnomalyDetectionView() {
         }
       } catch (err) {
         console.error("Failed to fetch assets:", err);
-        setError(t.errors.fetchAssets);
+        setError(getText('errors.fetchAssets'));
       }
     };
     fetchAssets();
-  }, [t]);
+  }, [language]); // 添加language依赖，确保语言切换时重新获取资产列表
 
   useEffect(() => {
     if (selectedAsset) {
@@ -77,21 +98,20 @@ function AnomalyDetectionView() {
           if (sortedModels.length > 0) {
             setSelectedModelId(sortedModels[0].id);
           } else {
-            setError(t.anomaly.noDetectors);
+            setError(getText('anomaly.noDetectors'));
           }
         } catch (err) {
           console.error("Failed to fetch models:", err);
-          setError(t.errors.fetchModels);
+          setError(getText('errors.fetchModels'));
         } finally {
           setLoading(false);
         }
       };
       fetchModels();
     }
-  }, [selectedAsset, t]);
+  }, [selectedAsset, language]); // 添加language依赖
 
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
+  const handleFileChange = (file) => {
     if (file && file.type === "text/csv") {
       setSelectedFile(file);
       setFileName(file.name);
@@ -99,7 +119,7 @@ function AnomalyDetectionView() {
     } else {
       setSelectedFile(null);
       setFileName('');
-      setError(t.errors.invalidFile);
+      setError(getText('errors.invalidFile'));
     }
   };
 
@@ -109,7 +129,7 @@ function AnomalyDetectionView() {
     setChartData({ datasets: [] });
 
     if (!selectedAsset || !selectedModelId) {
-      setError(t.errors.selectAssetModel);
+      setError(getText('errors.selectAssetModel'));
       setLoading(false);
       return;
     }
@@ -119,7 +139,7 @@ function AnomalyDetectionView() {
 
     if (dataInputMethod === 'upload') {
       if (!selectedFile) {
-        setError(t.errors.selectFile);
+        setError(getText('errors.selectFile'));
         setLoading(false);
         return;
       }
@@ -131,7 +151,7 @@ function AnomalyDetectionView() {
 
     } else if (dataInputMethod === 's3') {
       if (!s3DataPath) {
-        setError(t.errors.enterS3Path);
+        setError(getText('errors.enterS3Path'));
         setLoading(false);
         return;
       }
@@ -157,7 +177,7 @@ function AnomalyDetectionView() {
       setChartData({
         datasets: [
           {
-            label: t.anomaly.historicalEnergy,
+            label: getText('anomaly.historicalEnergy'),
             data: historicalData,
             borderColor: '#8884d8',
             backgroundColor: 'rgba(136, 132, 216, 0.5)',
@@ -165,7 +185,7 @@ function AnomalyDetectionView() {
             type: 'line',
           },
           {
-            label: t.anomaly.anomalies,
+            label: getText('anomaly.anomalies'),
             data: anomalyPoints,
             backgroundColor: 'red',
             pointRadius: 5,
@@ -176,7 +196,7 @@ function AnomalyDetectionView() {
 
     } catch (err) {
       console.error("Detection error:", err);
-      setError(t.errors.detectionFailed + (err.message || t.errors.unexpected));
+      setError(getText('errors.detectionFailed') + (err.message || getText('errors.unexpected')));
     } finally {
       setLoading(false);
     }
@@ -194,13 +214,13 @@ function AnomalyDetectionView() {
         },
         title: {
           display: true,
-          text: t.anomaly.timestamp
+          text: getText('anomaly.timestamp')
         }
       },
       y: {
         title: {
           display: true,
-          text: t.anomaly.energyKwh
+          text: getText('anomaly.energyKwh')
         }
       }
     },
@@ -210,7 +230,7 @@ function AnomalyDetectionView() {
       },
       title: {
         display: true,
-        text: t.anomaly.chartTitle
+        text: getText('anomaly.chartTitle')
       },
       zoom: {
         pan: {
@@ -250,7 +270,7 @@ function AnomalyDetectionView() {
           fontSize: '1.5rem',
           fontWeight: '600'
         }}>
-          🚨 {t.anomaly.title}
+          🚨 {getText('anomaly.title')}
         </h2>
 
         <div style={{ display: 'grid', gap: '1.5rem' }}>
@@ -262,7 +282,7 @@ function AnomalyDetectionView() {
               color: '#4a5568',
               fontSize: '0.9rem'
             }}>
-              🏭 {t.anomaly.selectAsset}:
+              🏭 {getText('anomaly.selectAsset')}:
             </label>
             <select
               value={selectedAsset}
@@ -293,7 +313,7 @@ function AnomalyDetectionView() {
               color: '#4a5568',
               fontSize: '0.9rem'
             }}>
-              🤖 {t.anomaly.selectModel}:
+              🤖 {getText('anomaly.selectModel')}:
             </label>
             <select
               value={selectedModelId}
@@ -310,11 +330,11 @@ function AnomalyDetectionView() {
               }}
             >
               {models.length === 0 ? (
-                <option value="">{t.anomaly.noModels}</option>
+                <option value="">{getText('anomaly.noModels')}</option>
               ) : (
                 models.map(model => (
                   <option key={model.id} value={model.id}>
-                    v{model.model_version} - {model.model_type} | MAPE: {model.metrics?.mape?.toFixed(2) ?? 'N/A'}% | {t.anomaly.trained}: {new Date(model.created_at).toLocaleDateString()} (ID: {model.id})
+                    v{model.model_version} - {model.model_type} | MAPE: {model.metrics?.mape?.toFixed(2) ?? 'N/A'}% | {getText('anomaly.trained')}: {new Date(model.created_at).toLocaleDateString()} (ID: {model.id})
                   </option>
                 ))
               )}
@@ -329,7 +349,7 @@ function AnomalyDetectionView() {
               color: '#4a5568',
               fontSize: '0.9rem'
             }}>
-              📁 {t.anomaly.dataInputMethod}:
+              📁 {getText('anomaly.dataInputMethod')}:
             </label>
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
               <label style={{
@@ -352,7 +372,7 @@ function AnomalyDetectionView() {
                   onChange={() => setDataInputMethod('upload')}
                   style={{ display: 'none' }}
                 />
-                📤 {t.anomaly.uploadCSV}
+                📤 {getText('anomaly.uploadCSV')}
               </label>
               <label style={{
                 display: 'flex',
@@ -374,7 +394,7 @@ function AnomalyDetectionView() {
                   onChange={() => setDataInputMethod('s3')}
                   style={{ display: 'none' }}
                 />
-                ☁️ {t.anomaly.s3Path}
+                ☁️ {getText('anomaly.s3Path')}
               </label>
             </div>
 
@@ -387,12 +407,12 @@ function AnomalyDetectionView() {
                   color: '#4a5568',
                   fontSize: '0.9rem'
                 }}>
-                  {t.anomaly.uploadHistoricalData}:
+                  {getText('anomaly.uploadHistoricalData')}:
                 </label>
-                <input
-                  type="file"
+                <CustomFileInput
                   accept=".csv"
-                  onChange={handleFileChange}
+                  onFileChange={handleFileChange}
+                  selectedFile={selectedFile}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
@@ -402,11 +422,6 @@ function AnomalyDetectionView() {
                     cursor: 'pointer'
                   }}
                 />
-                {selectedFile && (
-                  <p style={{ marginTop: '0.5rem', color: '#38a169', fontSize: '0.9rem' }}>
-                    {selectedFile.name}
-                  </p>
-                )}
               </div>
             ) : (
               <div>
@@ -417,7 +432,7 @@ function AnomalyDetectionView() {
                   color: '#4a5568',
                   fontSize: '0.9rem'
                 }}>
-                  {t.anomaly.s3PathInput}:
+                  {getText('anomaly.s3PathInput')}:
                 </label>
                 <input
                   type="text"
@@ -469,7 +484,7 @@ function AnomalyDetectionView() {
               gap: '0.5rem'
             }}
           >
-            {loading ? '⏳' : '🚨'} {loading ? t.anomaly.detecting : t.anomaly.startDetection}
+            {loading ? '⏳' : '🚨'} {loading ? getText('anomaly.detecting') : getText('anomaly.startDetection')}
           </button>
         </div>
 

@@ -12,7 +12,8 @@ const translations = {
       training: '模型训练',
       models: '模型管理',
       assets: '资产管理',
-      apiKeys: 'API 密钥'
+      apiKeys: 'API 密钥',
+      apiDocs: 'API 文档'
     },
     
     // Home page
@@ -51,29 +52,56 @@ const translations = {
 
     // Training page
     training: {
-      title: '开始新的模型训练',
+      title: '模型训练',
       selectAsset: '选择资产',
       chooseAsset: '请选择资产',
+      selectModelType: '选择模型类型',
       selectAlgorithm: '选择算法',
       chooseAlgorithm: '请选择算法',
-      algorithmDescriptions: {
-        LightGBM: '快速梯度提升，适合大数据集',
-        LSTM: '长短期记忆网络，适合序列数据',
-        TFT: '时间融合变换器，高精度预测',
-        TiDE: '时间序列密集编码器，轻量级模型'
+      uploadTrainingData: '上传训练数据',
+      algorithms: {
+        'LightGBM': {
+          label: 'LightGBM',
+          desc: '轻量级梯度提升机，适合快速训练和高精度预测'
+        },
+        'TiDE': {
+          label: 'TiDE',
+          desc: '时间序列密集编码器，专为长期预测设计'
+        },
+        'LSTM': {
+          label: 'LSTM',
+          desc: '长短期记忆网络，擅长处理序列数据'
+        },
+        'TFT': {
+          label: 'TFT',
+          desc: '时间融合变换器，支持多变量时间序列预测'
+        },
+        'TFT (No Past Covariates)': {
+          label: 'TFT (无历史协变量)',
+          desc: '简化版TFT，不使用历史协变量'
+        }
       },
       dataInputMethod: '数据输入方式',
-      uploadCSV: '上传 CSV 文件',
+      uploadCsv: '上传 CSV 文件',
       s3Path: 'S3 路径',
       trainingDataFile: '训练数据文件',
       chooseFile: '选择文件',
       noFileSelected: '未选择任何文件',
+      fileSelected: '已选择文件',
+      s3DataPath: 'S3数据路径',
+      s3Placeholder: '例如: s3://bucket/path/to/data.csv',
       epochs: '训练轮数',
-      epochsHint: '神经网络推荐 20-100 轮，LightGBM 不使用轮数',
-      startTraining: '开始训练任务',
-      training: '训练中...',
-      success: '训练任务创建成功！',
-      error: '训练失败'
+      epochsHint: '建议值：LightGBM 10-50轮，深度学习模型 20-100轮',
+      startTraining: '开始训练',
+      starting: '正在启动...',
+      taskRunning: '任务运行中...',
+      noAssets: '没有可用资产',
+      errors: {
+        failedToLoadAssets: '加载资产失败',
+        noFile: '请选择文件',
+        noS3Path: '请输入S3路径',
+        failedToStart: '启动训练失败'
+      }
     },
 
     // Forecast page
@@ -92,7 +120,18 @@ const translations = {
       s3PathInput: 'S3 数据路径',
       startForecast: '开始预测',
       forecasting: '预测中...',
-      results: '预测结果'
+      results: '预测结果',
+      historicalEnergy: '历史能耗',
+      predictedEnergy: '预测能耗',
+      timestamp: '时间戳',
+      energyKwh: '能耗 (kWh)',
+      chartTitle: '能耗预测图表',
+      fileSelected: '已选择',
+      lastSelectedFile: '上次选择的文件',
+      reselect: '请重新选择',
+      waitingResults: '等待预测结果...',
+      configureAndPredict: '配置参数并点击预测后，结果将在此显示',
+      visualAnalysis: '支持历史数据和预测数据的可视化分析'
     },
 
     // Anomaly Detection page
@@ -189,6 +228,67 @@ const translations = {
       }
     },
 
+    // Common
+    common: {
+      chooseFile: '选择文件',
+      fileSelected: '已选择文件',
+      noFileSelected: '未选择任何文件'
+    },
+
+    // API Documentation
+    api: {
+      title: 'API 文档',
+      assets: '资产管理',
+      models: '模型管理',
+      forecast: '预测接口',
+      anomaly: '异常检测',
+      training: '模型训练',
+      apiKeys: 'API 密钥',
+      method: '方法',
+      endpoint: '接口地址',
+      description: '描述',
+      parameters: '参数',
+      response: '响应',
+      example: '示例',
+      required: '必需',
+      optional: '可选',
+      getAssetList: '获取资产列表',
+      createAsset: '创建新资产',
+      updateAsset: '更新资产信息',
+      deleteAsset: '删除资产',
+      getModelList: '获取模型列表',
+      getModelDetails: '获取模型详情',
+      deleteModel: '删除模型',
+      predictFromCsv: '基于CSV文件进行能耗预测',
+      predictFromS3: '基于S3数据进行能耗预测',
+      detectAnomalyFromCsv: '基于CSV文件进行异常检测',
+      detectAnomalyFromS3: '基于S3数据进行异常检测',
+      startTraining: '启动新的模型训练任务',
+      startTrainingFromCsv: '使用CSV文件启动模型训练任务',
+      getTaskStatus: '查询训练任务状态',
+      getAssetModels: '获取指定资产的所有模型',
+      getApiKeyList: '获取API密钥列表',
+      createApiKey: '创建新的API密钥',
+      deleteApiKey: '删除API密钥',
+      pathParam: '路径参数',
+      formData: '表单数据',
+      queryParam: '查询参数',
+      csvFile: 'CSV数据文件',
+      s3DataPath: 'S3数据路径',
+      modelId: '模型ID',
+      assetId: '资产ID',
+      forecastHorizon: '预测时长（小时）',
+      modelType: '模型类型',
+      taskDescription: '训练任务描述',
+      taskId: '任务ID',
+      keyName: 'API密钥名称',
+      keyId: 'API密钥ID',
+      assetName: '资产名称',
+      assetDescription: '资产描述',
+      successMessage: '操作成功',
+      deleteSuccessMessage: '删除成功'
+    },
+
     // Common errors
     errors: {
       fetchAssets: '无法加载资产列表',
@@ -212,7 +312,8 @@ const translations = {
       training: 'Model Training',
       models: 'Model Management',
       assets: 'Asset Management',
-      apiKeys: 'API Keys'
+      apiKeys: 'API Keys',
+      apiDocs: 'API Documentation'
     },
 
     // Home page
@@ -251,29 +352,56 @@ const translations = {
 
     // Training page
     training: {
-      title: 'Start New Model Training',
+      title: 'Model Training',
       selectAsset: 'Select Asset',
       chooseAsset: 'Please choose an asset',
+      selectModelType: 'Select Model Type',
       selectAlgorithm: 'Select Algorithm',
       chooseAlgorithm: 'Please choose an algorithm',
-      algorithmDescriptions: {
-        LightGBM: 'Fast gradient boosting, suitable for large datasets',
-        LSTM: 'Long Short-Term Memory, suitable for sequence data',
-        TFT: 'Temporal Fusion Transformer, high-precision prediction',
-        TiDE: 'Time-series Dense Encoder, lightweight model'
+      uploadTrainingData: 'Upload Training Data',
+      algorithms: {
+        'LightGBM': {
+          label: 'LightGBM',
+          desc: 'Lightweight gradient boosting machine, suitable for fast training and high accuracy prediction'
+        },
+        'TiDE': {
+          label: 'TiDE',
+          desc: 'Time-series Dense Encoder, designed for long-term forecasting'
+        },
+        'LSTM': {
+          label: 'LSTM',
+          desc: 'Long Short-Term Memory network, excels at processing sequence data'
+        },
+        'TFT': {
+          label: 'TFT',
+          desc: 'Temporal Fusion Transformer, supports multivariate time series forecasting'
+        },
+        'TFT (No Past Covariates)': {
+          label: 'TFT (No Past Covariates)',
+          desc: 'Simplified TFT without using past covariates'
+        }
       },
       dataInputMethod: 'Data Input Method',
-      uploadCSV: 'Upload CSV File',
+      uploadCsv: 'Upload CSV File',
       s3Path: 'S3 Path',
       trainingDataFile: 'Training Data File',
       chooseFile: 'Choose File',
       noFileSelected: 'No file selected',
-      epochs: 'Number of Epochs',
-      epochsHint: 'Recommended 20-100 for neural networks, LightGBM does not use epochs',
-      startTraining: 'Start Training Job',
-      training: 'Training...',
-      success: 'Training job created successfully!',
-      error: 'Training failed'
+      fileSelected: 'File Selected',
+      s3DataPath: 'S3 Data Path',
+      s3Placeholder: 'e.g.: s3://bucket/path/to/data.csv',
+      epochs: 'Training Epochs',
+      epochsHint: 'Recommended: LightGBM 10-50 epochs, deep learning models 20-100 epochs',
+      startTraining: 'Start Training',
+      starting: 'Starting...',
+      taskRunning: 'Task Running...',
+      noAssets: 'No Available Assets',
+      errors: {
+        failedToLoadAssets: 'Failed to load assets',
+        noFile: 'Please select a file',
+        noS3Path: 'Please enter S3 path',
+        failedToStart: 'Failed to start training'
+      }
     },
 
     // Forecast page
@@ -292,7 +420,18 @@ const translations = {
       s3PathInput: 'S3 Data Path',
       startForecast: 'Start Forecast',
       forecasting: 'Forecasting...',
-      results: 'Forecast Results'
+      results: 'Forecast Results',
+      historicalEnergy: 'Historical Energy',
+      predictedEnergy: 'Predicted Energy',
+      timestamp: 'Timestamp',
+      energyKwh: 'Energy (kWh)',
+      chartTitle: 'Energy Forecast Chart',
+      fileSelected: 'Selected',
+      lastSelectedFile: 'Last selected file',
+      reselect: 'please reselect',
+      waitingResults: 'Waiting for forecast results...',
+      configureAndPredict: 'Configure parameters and click forecast to display results here',
+      visualAnalysis: 'Supports visualization analysis of historical and forecast data'
     },
 
     // Anomaly Detection page
@@ -389,6 +528,67 @@ const translations = {
       }
     },
 
+    // Common
+    common: {
+      chooseFile: 'Choose File',
+      fileSelected: 'File Selected',
+      noFileSelected: 'No file selected'
+    },
+
+    // API Documentation
+    api: {
+      title: 'API Documentation',
+      assets: 'Asset Management',
+      models: 'Model Management',
+      forecast: 'Forecast API',
+      anomaly: 'Anomaly Detection',
+      training: 'Model Training',
+      apiKeys: 'API Keys',
+      method: 'Method',
+      endpoint: 'Endpoint',
+      description: 'Description',
+      parameters: 'Parameters',
+      response: 'Response',
+      example: 'Example',
+      required: 'Required',
+      optional: 'Optional',
+      getAssetList: 'Get asset list',
+      createAsset: 'Create new asset',
+      updateAsset: 'Update asset information',
+      deleteAsset: 'Delete asset',
+      getModelList: 'Get model list',
+      getModelDetails: 'Get model details',
+      deleteModel: 'Delete model',
+      predictFromCsv: 'Energy prediction from CSV file',
+      predictFromS3: 'Energy prediction from S3 data',
+      detectAnomalyFromCsv: 'Anomaly detection from CSV file',
+      detectAnomalyFromS3: 'Anomaly detection from S3 data',
+      startTraining: 'Start new model training task',
+      startTrainingFromCsv: 'Start model training from CSV file',
+      getTaskStatus: 'Query training task status',
+      getAssetModels: 'Get all models for specified asset',
+      getApiKeyList: 'Get API key list',
+      createApiKey: 'Create new API key',
+      deleteApiKey: 'Delete API key',
+      pathParam: 'Path parameter',
+      formData: 'Form data',
+      queryParam: 'Query parameter',
+      csvFile: 'CSV data file',
+      s3DataPath: 'S3 data path',
+      modelId: 'Model ID',
+      assetId: 'Asset ID',
+      forecastHorizon: 'Forecast horizon (hours)',
+      modelType: 'Model type',
+      taskDescription: 'Training task description',
+      taskId: 'Task ID',
+      keyName: 'API key name',
+      keyId: 'API key ID',
+      assetName: 'Asset name',
+      assetDescription: 'Asset description',
+      successMessage: 'Operation successful',
+      deleteSuccessMessage: 'Deleted successfully'
+    },
+
     // Common errors
     errors: {
       fetchAssets: 'Could not load assets',
@@ -407,18 +607,26 @@ const translations = {
 export function LanguageProvider({ children }) {
   const [language, setLanguage] = useState(() => {
     const saved = localStorage.getItem('language');
+    console.log("初始化语言:", saved || 'zh');
     return saved || 'zh';
   });
 
   useEffect(() => {
+    console.log("语言已更改为:", language);
     localStorage.setItem('language', language);
+    // 强制重新渲染
+    document.title = `能耗预测系统 - ${language === 'zh' ? '中文' : 'English'}`;
   }, [language]);
 
   const toggleLanguage = () => {
-    setLanguage(prev => prev === 'zh' ? 'en' : 'zh');
+    console.log("切换语言，当前语言:", language);
+    const newLanguage = language === 'zh' ? 'en' : 'zh';
+    console.log("切换到新语言:", newLanguage);
+    setLanguage(newLanguage);
   };
 
-  const t = translations[language];
+  // 确保t是正确的翻译对象
+  const t = translations[language] || translations.zh;
 
   return (
     <LanguageContext.Provider value={{ language, toggleLanguage, t }}>

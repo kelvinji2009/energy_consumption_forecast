@@ -2,49 +2,46 @@ import React, { useState } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 function ApiDocumentation() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [selectedCategory, setSelectedCategory] = useState('assets');
 
-  // 安全翻译函数
-  const safeT = (key) => {
-    if (typeof t === 'function') {
-      return t(key);
+  // 改进的翻译函数，确保能够正确获取当前语言的翻译
+  const getText = (key) => {
+    if (!t || typeof t !== 'object') {
+      return key;
     }
-    const defaultTexts = {
-      'api.title': 'API 文档',
-      'api.assets': '资产管理',
-      'api.models': '模型管理',
-      'api.forecast': '预测接口',
-      'api.anomaly': '异常检测',
-      'api.training': '模型训练',
-      'api.apiKeys': 'API 密钥',
-      'api.method': '方法',
-      'api.endpoint': '接口地址',
-      'api.description': '描述',
-      'api.parameters': '参数',
-      'api.response': '响应',
-      'api.example': '示例'
-    };
-    return defaultTexts[key] || key;
+    
+    // 支持嵌套键，如 'api.title'
+    const keys = key.split('.');
+    let result = t;
+    for (const k of keys) {
+      if (result && typeof result === 'object' && k in result) {
+        result = result[k];
+      } else {
+        return key;
+      }
+    }
+    
+    return result || key;
   };
 
   const apiCategories = {
     assets: {
-      title: safeT('api.assets'),
+      title: getText('api.assets'),
       icon: '🏭',
       endpoints: [
         {
           method: 'GET',
           path: '/admin/assets',
-          description: '获取资产列表',
+          description: getText('api.getAssetList'),
           parameters: [],
           response: {
             type: 'array',
             example: [
               {
                 id: 'production_line_A',
-                name: '生产线 A',
-                description: '主要生产线设备',
+                name: language === 'zh' ? '生产线 A' : 'Production Line A',
+                description: language === 'zh' ? '主要生产线设备' : 'Main production line equipment',
                 model_count: 2,
                 created_at: '2024-01-01T00:00:00Z'
               }
@@ -54,18 +51,18 @@ function ApiDocumentation() {
         {
           method: 'POST',
           path: '/admin/assets',
-          description: '创建新资产',
+          description: getText('api.createAsset'),
           parameters: [
-            { name: 'id', type: 'string', required: true, description: '资产ID' },
-            { name: 'name', type: 'string', required: true, description: '资产名称' },
-            { name: 'description', type: 'string', required: false, description: '资产描述' }
+            { name: 'id', type: 'string', required: true, description: getText('api.assetId') },
+            { name: 'name', type: 'string', required: true, description: getText('api.assetName') },
+            { name: 'description', type: 'string', required: false, description: getText('api.assetDescription') }
           ],
           response: {
             type: 'object',
             example: {
               id: 'production_line_B',
-              name: '生产线 B',
-              description: '新建生产线设备',
+              name: language === 'zh' ? '生产线 B' : 'Production Line B',
+              description: language === 'zh' ? '新建生产线设备' : 'New production line equipment',
               created_at: '2024-01-01T00:00:00Z'
             }
           }
@@ -73,45 +70,45 @@ function ApiDocumentation() {
         {
           method: 'PUT',
           path: '/admin/assets/{asset_id}',
-          description: '更新资产信息',
+          description: getText('api.updateAsset'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' },
-            { name: 'name', type: 'string', required: false, description: '资产名称' },
-            { name: 'description', type: 'string', required: false, description: '资产描述' }
+            { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` },
+            { name: 'name', type: 'string', required: false, description: getText('api.assetName') },
+            { name: 'description', type: 'string', required: false, description: getText('api.assetDescription') }
           ],
           response: {
             type: 'object',
             example: {
               id: 'production_line_A',
-              name: '更新后的生产线 A',
-              description: '更新后的描述'
+              name: language === 'zh' ? '更新后的生产线 A' : 'Updated Production Line A',
+              description: language === 'zh' ? '更新后的描述' : 'Updated description'
             }
           }
         },
         {
           method: 'DELETE',
           path: '/admin/assets/{asset_id}',
-          description: '删除资产',
+          description: getText('api.deleteAsset'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' }
+            { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` }
           ],
           response: {
             type: 'object',
-            example: { message: '资产删除成功' }
+            example: { message: getText('api.deleteSuccessMessage') }
           }
         }
       ]
     },
     models: {
-      title: safeT('api.models'),
+      title: getText('api.models'),
       icon: '🤖',
       endpoints: [
         {
           method: 'GET',
           path: '/admin/models',
-          description: '获取模型列表',
+          description: getText('api.getModelList'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: false, description: '按资产ID筛选' }
+            { name: 'asset_id', type: 'string', required: false, description: `${language === 'zh' ? '按' : 'Filter by '}${getText('api.assetId')}${language === 'zh' ? '筛选' : ''}` }
           ],
           response: {
             type: 'array',
@@ -131,9 +128,9 @@ function ApiDocumentation() {
         {
           method: 'GET',
           path: '/admin/models/{model_id}',
-          description: '获取模型详情',
+          description: getText('api.getModelDetails'),
           parameters: [
-            { name: 'model_id', type: 'integer', required: true, description: '模型ID（路径参数）' }
+            { name: 'model_id', type: 'integer', required: true, description: `${getText('api.modelId')}（${getText('api.pathParam')}）` }
           ],
           response: {
             type: 'object',
@@ -152,30 +149,30 @@ function ApiDocumentation() {
         {
           method: 'DELETE',
           path: '/admin/models/{model_id}',
-          description: '删除模型',
+          description: getText('api.deleteModel'),
           parameters: [
-            { name: 'model_id', type: 'integer', required: true, description: '模型ID（路径参数）' }
+            { name: 'model_id', type: 'integer', required: true, description: `${getText('api.modelId')}（${getText('api.pathParam')}）` }
           ],
           response: {
             type: 'object',
-            example: { message: '模型删除成功' }
+            example: { message: getText('api.deleteSuccessMessage') }
           }
         }
       ]
     },
     forecast: {
-      title: safeT('api.forecast'),
+      title: getText('api.forecast'),
       icon: '📊',
       endpoints: [
         {
           method: 'POST',
           path: '/assets/{asset_id}/predict_from_csv',
-          description: '基于CSV文件进行能耗预测',
+          description: getText('api.predictFromCsv'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' },
-            { name: 'file', type: 'file', required: true, description: 'CSV数据文件' },
-            { name: 'model_id', type: 'integer', required: true, description: '模型ID' },
-            { name: 'forecast_horizon', type: 'integer', required: true, description: '预测时长（小时）' }
+            { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` },
+            { name: 'file', type: 'file', required: true, description: getText('api.csvFile') },
+            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') },
+            { name: 'forecast_horizon', type: 'integer', required: true, description: getText('api.forecastHorizon') }
           ],
           response: {
             type: 'object',
@@ -192,12 +189,12 @@ function ApiDocumentation() {
         {
           method: 'POST',
           path: '/assets/{asset_id}/predict_from_s3',
-          description: '基于S3数据进行能耗预测',
+          description: getText('api.predictFromS3'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' },
-            { name: 's3_data_path', type: 'string', required: true, description: 'S3数据路径' },
-            { name: 'model_id', type: 'integer', required: true, description: '模型ID' },
-            { name: 'forecast_horizon', type: 'integer', required: true, description: '预测时长（小时）' }
+            { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` },
+            { name: 's3_data_path', type: 'string', required: true, description: getText('api.s3DataPath') },
+            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') },
+            { name: 'forecast_horizon', type: 'integer', required: true, description: getText('api.forecastHorizon') }
           ],
           response: {
             type: 'object',
@@ -214,17 +211,17 @@ function ApiDocumentation() {
       ]
     },
     anomaly: {
-      title: safeT('api.anomaly'),
+      title: getText('api.anomaly'),
       icon: '🚨',
       endpoints: [
         {
           method: 'POST',
           path: '/assets/{asset_id}/detect_anomaly_from_csv',
-          description: '基于CSV文件进行异常检测',
+          description: getText('api.detectAnomalyFromCsv'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' },
-            { name: 'file', type: 'file', required: true, description: 'CSV数据文件' },
-            { name: 'model_id', type: 'integer', required: true, description: '模型ID' }
+            { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` },
+            { name: 'file', type: 'file', required: true, description: getText('api.csvFile') },
+            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') }
           ],
           response: {
             type: 'object',
@@ -243,11 +240,11 @@ function ApiDocumentation() {
         {
           method: 'POST',
           path: '/assets/{asset_id}/detect_anomaly_from_s3',
-          description: '基于S3数据进行异常检测',
+          description: getText('api.detectAnomalyFromS3'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' },
-            { name: 's3_data_path', type: 'string', required: true, description: 'S3数据路径' },
-            { name: 'model_id', type: 'integer', required: true, description: '模型ID' }
+            { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` },
+            { name: 's3_data_path', type: 'string', required: true, description: getText('api.s3DataPath') },
+            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') }
           ],
           response: {
             type: 'object',
@@ -266,52 +263,52 @@ function ApiDocumentation() {
       ]
     },
     training: {
-      title: safeT('api.training'),
+      title: getText('api.training'),
       icon: '🎯',
       endpoints: [
         {
           method: 'POST',
           path: '/admin/training-jobs',
-          description: '启动新的模型训练任务',
+          description: getText('api.startTraining'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
-            { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
-            { name: 'description', type: 'string', required: false, description: '训练任务描述' }
+            { name: 'asset_id', type: 'string', required: true, description: getText('api.assetId') },
+            { name: 'model_type', type: 'string', required: true, description: `${getText('api.modelType')} (LightGBM, TFT, LSTM, TiDE)` },
+            { name: 'description', type: 'string', required: false, description: getText('api.taskDescription') }
           ],
           response: {
             type: 'object',
             example: {
               task_id: 'abc123-def456-ghi789',
               status: 'PENDING',
-              message: 'Training job started successfully'
+              message: language === 'zh' ? '训练任务启动成功' : 'Training job started successfully'
             }
           }
         },
         {
           method: 'POST',
           path: '/admin/training-jobs-from-csv',
-          description: '使用CSV文件启动模型训练任务',
+          description: getText('api.startTrainingFromCsv'),
           parameters: [
-            { name: 'file', type: 'file', required: true, description: 'CSV训练数据文件' },
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
-            { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
-            { name: 'description', type: 'string', required: false, description: '训练任务描述' }
+            { name: 'file', type: 'file', required: true, description: `CSV${language === 'zh' ? '训练数据文件' : ' training data file'}` },
+            { name: 'asset_id', type: 'string', required: true, description: getText('api.assetId') },
+            { name: 'model_type', type: 'string', required: true, description: `${getText('api.modelType')} (LightGBM, TFT, LSTM, TiDE)` },
+            { name: 'description', type: 'string', required: false, description: getText('api.taskDescription') }
           ],
           response: {
             type: 'object',
             example: {
               task_id: 'abc123-def456-ghi789',
               status: 'PENDING',
-              message: 'Training job started successfully'
+              message: language === 'zh' ? '训练任务启动成功' : 'Training job started successfully'
             }
           }
         },
         {
           method: 'GET',
           path: '/admin/tasks/{task_id}/status',
-          description: '查询训练任务状态',
+          description: getText('api.getTaskStatus'),
           parameters: [
-            { name: 'task_id', type: 'string', required: true, description: '任务ID（路径参数）' }
+            { name: 'task_id', type: 'string', required: true, description: `${getText('api.taskId')}（${getText('api.pathParam')}）` }
           ],
           response: {
             type: 'object',
@@ -330,9 +327,9 @@ function ApiDocumentation() {
         {
           method: 'GET',
           path: '/admin/assets/{asset_id}/models',
-          description: '获取指定资产的所有模型',
+          description: getText('api.getAssetModels'),
           parameters: [
-            { name: 'asset_id', type: 'string', required: true, description: '资产ID（路径参数）' }
+            { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` }
           ],
           response: {
             type: 'array',
@@ -343,7 +340,7 @@ function ApiDocumentation() {
                 model_type: 'LightGBM',
                 model_version: '20250821032849',
                 status: 'COMPLETED',
-                description: 'LightGBM model trained on 2025-08-21',
+                description: language === 'zh' ? 'LightGBM模型，训练于2025-08-21' : 'LightGBM model trained on 2025-08-21',
                 metrics: { mape: 9.324668638609689 },
                 created_at: '2025-08-21T03:28:11.193719Z'
               }
@@ -353,20 +350,20 @@ function ApiDocumentation() {
       ]
     },
     apiKeys: {
-      title: safeT('api.apiKeys'),
+      title: getText('api.apiKeys'),
       icon: '🔑',
       endpoints: [
         {
           method: 'GET',
           path: '/admin/api_keys',
-          description: '获取API密钥列表',
+          description: getText('api.getApiKeyList'),
           parameters: [],
           response: {
             type: 'array',
             example: [
               {
                 id: 1,
-                name: 'Production Key',
+                name: language === 'zh' ? '生产环境密钥' : 'Production Key',
                 key_preview: 'sk-...abc123',
                 created_at: '2024-01-01T00:00:00Z',
                 last_used: '2024-01-02T00:00:00Z'
@@ -377,15 +374,15 @@ function ApiDocumentation() {
         {
           method: 'POST',
           path: '/admin/api_keys',
-          description: '创建新的API密钥',
+          description: getText('api.createApiKey'),
           parameters: [
-            { name: 'name', type: 'string', required: true, description: 'API密钥名称' }
+            { name: 'name', type: 'string', required: true, description: getText('api.keyName') }
           ],
           response: {
             type: 'object',
             example: {
               id: 1,
-              name: 'Production Key',
+              name: language === 'zh' ? '生产环境密钥' : 'Production Key',
               key: 'sk-1234567890abcdef',
               created_at: '2024-01-01T00:00:00Z'
             }
@@ -394,13 +391,13 @@ function ApiDocumentation() {
         {
           method: 'DELETE',
           path: '/admin/api_keys/{key_id}',
-          description: '删除API密钥',
+          description: getText('api.deleteApiKey'),
           parameters: [
-            { name: 'key_id', type: 'integer', required: true, description: 'API密钥ID（路径参数）' }
+            { name: 'key_id', type: 'integer', required: true, description: `${getText('api.keyId')}（${getText('api.pathParam')}）` }
           ],
           response: {
             type: 'object',
-            example: { message: 'API密钥删除成功' }
+            example: { message: getText('api.deleteSuccessMessage') }
           }
         }
       ]
@@ -469,7 +466,7 @@ function ApiDocumentation() {
             fontWeight: '600',
             marginBottom: '0.5rem'
           }}>
-            📋 {safeT('api.parameters')}:
+            📋 {getText('api.parameters')}:
           </h4>
           <div style={{
             background: '#f9fafb',
@@ -506,7 +503,7 @@ function ApiDocumentation() {
                     borderRadius: '4px',
                     fontSize: '0.75rem'
                   }}>
-                    必需
+                    {getText('api.required')}
                   </span>
                 )}
                 <span style={{ color: '#4b5563' }}>
@@ -525,7 +522,7 @@ function ApiDocumentation() {
           fontWeight: '600',
           marginBottom: '0.5rem'
         }}>
-          📤 {safeT('api.response')} {safeT('api.example')}:
+          📤 {getText('api.response')} {getText('api.example')}:
         </h4>
         <pre style={{
           background: '#1f2937',
@@ -561,7 +558,7 @@ function ApiDocumentation() {
           fontSize: '1.5rem',
           fontWeight: '600'
         }}>
-          📚 {safeT('api.title')}
+          📚 {getText('api.title')}
         </h2>
 
         <div style={{
