@@ -6,6 +6,7 @@ import ApiKeyList from './components/ApiKeyList';
 import ForecastView from './components/ForecastView';
 import ModelTraining from './components/ModelTraining';
 import AnomalyDetectionView from './components/AnomalyDetectionView';
+import ApiDocumentation from './components/ApiDocumentation';
 import TaskStatus from './components/TaskStatus';
 import ApiKeyPromptModal from './components/ApiKeyPromptModal';
 import LanguageToggle from './components/LanguageToggle';
@@ -23,7 +24,8 @@ function Navigation({ safeT }) {
     { path: '/training', label: safeT('nav.training') },
     { path: '/models', label: safeT('nav.models') },
     { path: '/assets', label: safeT('nav.assets') },
-    { path: '/api-keys', label: safeT('nav.apiKeys') }
+    { path: '/api-keys', label: safeT('nav.apiKeys') },
+    { path: '/api-docs', label: safeT('nav.apiDocs') }
   ];
 
   return (
@@ -68,6 +70,7 @@ function AppContent() {
       'nav.models': '模型管理',
       'nav.assets': '资产管理',
       'nav.apiKeys': 'API 密钥',
+      'nav.apiDocs': 'API 文档',
       'home.title': '能耗预测与异常检测管理系统',
       'home.subtitle': '基于机器学习的工业能耗智能分析平台',
       'home.features.prediction.title': '智能预测',
@@ -200,6 +203,11 @@ function AppContent() {
             <Route path="/api-keys" element={
               <div className="modern-card">
                 <ApiKeyList />
+              </div>
+            } />
+            <Route path="/api-docs" element={
+              <div className="modern-card">
+                <ApiDocumentation />
               </div>
             } />
           </Routes>
