@@ -33,40 +33,75 @@ function ApiDocumentation() {
       title: safeT('api.assets'),
       icon: '🏭',
       endpoints: [
-        {
-          method: 'GET',
-          path: '/admin/assets',
-          description: '获取所有资产列表',
-          parameters: [],
-          response: {
-            type: 'array',
-            example: [
+      {
+        title: '🎯 模型训练',
+        apis: [
+          {
+            method: 'POST',
+            endpoint: '/admin/training-jobs',
+            description: '启动新的模型训练任务',
+            params: [
+              { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
+              { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
+              { name: 'description', type: 'string', required: false, description: '训练任务描述' }
+            ],
+            response: {
+              task_id: 'string',
+              status: 'PENDING',
+              message: 'Training job started successfully'
+            }
+          },
+          {
+            method: 'POST',
+            endpoint: '/admin/training-jobs-from-csv',
+            description: '使用CSV文件启动模型训练任务',
+            params: [
+              { name: 'file', type: 'file', required: true, description: 'CSV训练数据文件' },
+              { name: 'asset_id', type: 'string', required: true, description: '资产ID' },
+              { name: 'model_type', type: 'string', required: true, description: '模型类型 (LightGBM, TFT, LSTM, TiDE)' },
+              { name: 'description', type: 'string', required: false, description: '训练任务描述' }
+            ],
+            response: {
+              task_id: 'string',
+              status: 'PENDING',
+              message: 'Training job started successfully'
+            }
+          },
+          {
+            method: 'GET',
+            endpoint: '/admin/tasks/{task_id}/status',
+            description: '查询训练任务状态',
+            params: [
+              { name: 'task_id', type: 'string', required: true, description: '任务ID' }
+            ],
+            response: {
+              task_id: 'string',
+              status: 'COMPLETED | PENDING | FAILED',
+              progress: 'number',
+              result: 'object'
+            }
+          },
+          {
+            method: 'GET',
+            endpoint: '/admin/assets/{asset_id}/models',
+            description: '获取指定资产的所有模型',
+            params: [
+              { name: 'asset_id', type: 'string', required: true, description: '资产ID' }
+            ],
+            response: [
               {
-                id: 'production_line_A',
-                name: '生产线 A',
-                description: '主要生产线设备'
+                id: 'number',
+                model_type: 'string',
+                model_version: 'string',
+                status: 'string',
+                description: 'string',
+                metrics: 'object',
+                created_at: 'datetime'
               }
             ]
           }
-        },
-        {
-          method: 'POST',
-          path: '/admin/assets',
-          description: '创建新资产',
-          parameters: [
-            { name: 'id', type: 'string', required: true, description: '资产ID' },
-            { name: 'name', type: 'string', required: true, description: '资产名称' },
-            { name: 'description', type: 'string', required: false, description: '资产描述' }
-          ],
-          response: {
-            type: 'object',
-            example: {
-              id: 'production_line_B',
-              name: '生产线 B',
-              description: '新建生产线'
-            }
-          }
-        },
+        ]
+      },
         {
           method: 'PUT',
           path: '/admin/assets/{asset_id}',
