@@ -83,7 +83,20 @@ function ModelTraining({ activeTask, setActiveTask }) {
             setSelectedFile(null);
 
         } catch (err) {
-            setError(`Failed to start training job: ${err.message}`);
+            console.error('Training job error:', err);
+            let errorMessage = 'An unexpected error occurred.';
+            
+            if (err.message) {
+                errorMessage = err.message;
+            } else if (typeof err === 'string') {
+                errorMessage = err;
+            } else if (err.detail) {
+                errorMessage = err.detail;
+            } else {
+                errorMessage = JSON.stringify(err);
+            }
+            
+            setError(`Failed to start training job: ${errorMessage}`);
         } finally {
             setIsLoading(false);
         }

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_PREFIX = '/api'; // All API calls will be prefixed with /api to be caught by the Nginx proxy.
 const API_KEY_STORAGE_KEY = 'ENERGY_FORECAST_API_KEY';
 
 // This singleton promise prevents multiple modals from appearing at once.
@@ -43,12 +43,18 @@ const apiClient = async (endpoint, options = {}) => {
   const apiKey = await getApiKey();
 
   const headers = {
-    'Content-Type': 'application/json',
     'X-API-Key': apiKey,
     ...options.headers,
   };
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  // If the body is FormData, let the browser set the Content-Type header automatically.
+  // Otherwise, set it to application/json.
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  // Construct the final URL with the /api prefix
+  const response = await fetch(`${API_PREFIX}${endpoint}`, {
     ...options,
     headers,
   });
