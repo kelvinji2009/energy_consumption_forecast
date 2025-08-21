@@ -8,64 +8,96 @@ import ModelTraining from './components/ModelTraining';
 import AnomalyDetectionView from './components/AnomalyDetectionView';
 import TaskStatus from './components/TaskStatus';
 import ApiKeyPromptModal from './components/ApiKeyPromptModal';
+import LanguageToggle from './components/LanguageToggle';
+import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import './App.css';
 
-// 现代化欢迎页面组件
-function WelcomePage() {
-  return (
-    <div className="modern-card">
-      <div className="welcome-section">
-        <h2>🚀 能耗预测与异常检测系统</h2>
-        <p>
-          基于先进机器学习算法的工业能耗管理平台，提供实时预测、异常检测和智能分析服务。
-          支持多种预测模型，助力企业实现能源优化和成本控制。
-        </p>
-        
-        <div className="feature-grid">
-          <div className="feature-card">
-            <div className="feature-icon">📊</div>
-            <h3>智能预测</h3>
-            <p>支持 LightGBM、TFT、LSTM、TiDE 等多种先进算法，提供高精度能耗预测</p>
-          </div>
+function AppContent() {
+  const { t } = useLanguage();
+  const [activeTask, setActiveTask] = useState(null);
+  const [isApiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+
+  // 安全检查：如果t函数不存在，提供默认值
+  const safeT = (key) => {
+    if (typeof t === 'function') {
+      return t(key);
+    }
+    // 提供默认的中文文本
+    const defaultTexts = {
+      'nav.home': '首页',
+      'nav.forecast': '能耗预测',
+      'nav.anomaly': '异常检测',
+      'nav.training': '模型训练',
+      'nav.models': '模型管理',
+      'nav.assets': '资产管理',
+      'nav.apiKeys': 'API 密钥',
+      'home.title': '能耗预测与异常检测管理系统',
+      'home.subtitle': '基于机器学习的工业能耗智能分析平台',
+      'home.features.prediction.title': '智能预测',
+      'home.features.prediction.desc': '支持多种算法的能耗预测模型',
+      'home.features.anomaly.title': '异常检测',
+      'home.features.anomaly.desc': '实时识别能耗异常模式',
+      'home.features.async.title': '异步处理',
+      'home.features.async.desc': '高效的后台任务处理',
+      'home.features.management.title': '资产管理',
+      'home.features.management.desc': '统一的设备和资产管理',
+      'home.features.visualization.title': '数据可视化',
+      'home.features.visualization.desc': '直观的图表和报告',
+      'home.features.security.title': '安全认证',
+      'home.features.security.desc': 'API密钥和权限管理'
+    };
+    return defaultTexts[key] || key;
+  };
+
+  // 现代化欢迎页面组件 - 在AppContent内部定义
+  const WelcomePage = () => {
+    return (
+      <div className="modern-card">
+        <div className="welcome-section">
+          <h2>{safeT('home.title')}</h2>
+          <p>{safeT('home.subtitle')}</p>
           
-          <div className="feature-card">
-            <div className="feature-icon">🔍</div>
-            <h3>异常检测</h3>
-            <p>基于 QuantileDetector 的实时异常监测，及时发现能耗异常并预警</p>
-          </div>
-          
-          <div className="feature-card">
-            <div className="feature-icon">⚡</div>
-            <h3>异步训练</h3>
-            <p>后台异步模型训练，支持大规模数据处理，不影响系统正常运行</p>
-          </div>
-          
-          <div className="feature-card">
-            <div className="feature-icon">🎯</div>
-            <h3>精准管理</h3>
-            <p>多资产管理，支持不同产线和车间的独立建模和预测分析</p>
-          </div>
-          
-          <div className="feature-card">
-            <div className="feature-icon">📈</div>
-            <h3>可视化分析</h3>
-            <p>直观的图表展示，实时监控预测结果和异常检测状态</p>
-          </div>
-          
-          <div className="feature-card">
-            <div className="feature-icon">🔒</div>
-            <h3>安全可靠</h3>
-            <p>API 密钥认证，容器化部署，确保数据安全和系统稳定性</p>
+          <div className="feature-grid">
+            <div className="feature-card">
+              <div className="feature-icon">📊</div>
+              <h3>{safeT('home.features.prediction.title')}</h3>
+              <p>{safeT('home.features.prediction.desc')}</p>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">🔍</div>
+              <h3>{safeT('home.features.anomaly.title')}</h3>
+              <p>{safeT('home.features.anomaly.desc')}</p>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">⚡</div>
+              <h3>{safeT('home.features.async.title')}</h3>
+              <p>{safeT('home.features.async.desc')}</p>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">🎯</div>
+              <h3>{safeT('home.features.management.title')}</h3>
+              <p>{safeT('home.features.management.desc')}</p>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">📈</div>
+              <h3>{safeT('home.features.visualization.title')}</h3>
+              <p>{safeT('home.features.visualization.desc')}</p>
+            </div>
+            
+            <div className="feature-card">
+              <div className="feature-icon">🔒</div>
+              <h3>{safeT('home.features.security.title')}</h3>
+              <p>{safeT('home.features.security.desc')}</p>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function App() {
-  const [activeTask, setActiveTask] = useState(null);
-  const [isApiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+    );
+  };
 
   // Effect to listen for global API key requests from the apiClient
   useEffect(() => {
@@ -94,16 +126,19 @@ function App() {
       )}
       <div className="App">
         <header className="header">
-          <h1>🔋 能耗预测与异常检测管理系统</h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h1>🔋 能耗预测系统</h1>
+            <LanguageToggle />
+          </div>
           <nav>
             <ul>
-              <li><Link to="/">🏠 首页</Link></li>
-              <li><Link to="/forecast">📈 能耗预测</Link></li>
-              <li><Link to="/anomaly-detection">🚨 异常检测</Link></li>
-              <li><Link to="/training">🎯 模型训练</Link></li>
-              <li><Link to="/models">🤖 模型管理</Link></li>
-              <li><Link to="/assets">🏭 资产管理</Link></li>
-              <li><Link to="/api-keys">🔑 API 密钥</Link></li>
+              <li><Link to="/">{safeT('nav.home')}</Link></li>
+              <li><Link to="/forecast">{safeT('nav.forecast')}</Link></li>
+              <li><Link to="/anomaly-detection">{safeT('nav.anomaly')}</Link></li>
+              <li><Link to="/training">{safeT('nav.training')}</Link></li>
+              <li><Link to="/models">{safeT('nav.models')}</Link></li>
+              <li><Link to="/assets">{safeT('nav.assets')}</Link></li>
+              <li><Link to="/api-keys">{safeT('nav.apiKeys')}</Link></li>
             </ul>
           </nav>
         </header>
@@ -149,6 +184,14 @@ function App() {
         </main>
       </div>
     </Router>
+  );
+}
+
+function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   );
 }
 

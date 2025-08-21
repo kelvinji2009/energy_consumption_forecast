@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../apiClient';
+import { useLanguage } from '../contexts/LanguageContext';
 
 function ModelTraining({ activeTask, setActiveTask }) {
+    const { t } = useLanguage();
     const [assets, setAssets] = useState([]);
     const [selectedAsset, setSelectedAsset] = useState('');
     const [s3DataPath, setS3DataPath] = useState('');
@@ -12,12 +14,53 @@ function ModelTraining({ activeTask, setActiveTask }) {
     const [isLoading, setIsLoading] = useState(false);
     const [selectedAlgorithm, setSelectedAlgorithm] = useState('LightGBM');
 
+    // 安全翻译函数
+    const safeT = (key) => {
+        if (typeof t === 'function') {
+            return t(key);
+        }
+        // 提供默认的中文文本
+        const defaultTexts = {
+            'training.algorithms.LightGBM.label': 'LightGBM',
+            'training.algorithms.LightGBM.desc': '轻量级梯度提升机，适合快速训练和高精度预测',
+            'training.algorithms.TiDE.label': 'TiDE',
+            'training.algorithms.TiDE.desc': '时间序列密集编码器，专为长期预测设计',
+            'training.algorithms.LSTM.label': 'LSTM',
+            'training.algorithms.LSTM.desc': '长短期记忆网络，擅长处理序列数据',
+            'training.algorithms.TFT.label': 'TFT',
+            'training.algorithms.TFT.desc': '时间融合变换器，支持多变量时间序列预测',
+            'training.algorithms.TFT (No Past Covariates).label': 'TFT (无历史协变量)',
+            'training.algorithms.TFT (No Past Covariates).desc': '简化版TFT，不使用历史协变量',
+            'training.title': '模型训练',
+            'training.selectAsset': '选择资产',
+            'training.selectAlgorithm': '选择算法',
+            'training.dataInputMethod': '数据输入方式',
+            'training.uploadCsv': '上传CSV文件',
+            'training.s3Path': 'S3路径',
+            'training.trainingDataFile': '训练数据文件',
+            'training.fileSelected': '已选择文件',
+            'training.s3DataPath': 'S3数据路径',
+            'training.s3Placeholder': '例如: s3://bucket/path/to/data.csv',
+            'training.epochs': '训练轮数',
+            'training.epochsHint': '建议值：LightGBM 10-50轮，深度学习模型 20-100轮',
+            'training.starting': '正在启动...',
+            'training.taskRunning': '任务运行中...',
+            'training.noAssets': '没有可用资产',
+            'training.startTraining': '开始训练',
+            'training.errors.failedToLoadAssets': '加载资产失败',
+            'training.errors.noFile': '请选择文件',
+            'training.errors.noS3Path': '请输入S3路径',
+            'training.errors.failedToStart': '启动训练失败'
+        };
+        return defaultTexts[key] || key;
+    };
+
     const algorithms = [
-        { value: 'LightGBM', label: '🚀 LightGBM', description: '快速梯度提升，适合大数据集' },
-        { value: 'TiDE', label: '🌊 TiDE', description: '时间序列密集编码器，高效准确' },
-        { value: 'LSTM', label: '🧠 LSTM', description: '长短期记忆网络，处理序列依赖' },
-        { value: 'TFT', label: '🎯 TFT', description: '时间融合变换器，最高精度' },
-        { value: 'TFT (No Past Covariates)', label: '⚡ TFT (简化版)', description: 'TFT 无历史协变量版本' }
+        { value: 'LightGBM', label: safeT('training.algorithms.LightGBM.label'), description: safeT('training.algorithms.LightGBM.desc') },
+        { value: 'TiDE', label: safeT('training.algorithms.TiDE.label'), description: safeT('training.algorithms.TiDE.desc') },
+        { value: 'LSTM', label: safeT('training.algorithms.LSTM.label'), description: safeT('training.algorithms.LSTM.desc') },
+        { value: 'TFT', label: safeT('training.algorithms.TFT.label'), description: safeT('training.algorithms.TFT.desc') },
+        { value: 'TFT (No Past Covariates)', label: safeT('training.algorithms.TFT (No Past Covariates).label'), description: safeT('training.algorithms.TFT (No Past Covariates).desc') }
     ];
 
     useEffect(() => {
@@ -30,11 +73,11 @@ function ModelTraining({ activeTask, setActiveTask }) {
                 }
             } catch (err) {
                 console.error("Failed to fetch assets:", err);
-                setError("无法加载资产列表。请检查 API 服务器是否运行正常以及 API 密钥是否正确。");
+                setError(safeT('training.errors.failedToLoadAssets'));
             }
         };
         fetchAssets();
-    }, []);
+    }, [safeT]);
 
     const handleFileChange = (event) => {
         const file = event.target.files[0];
@@ -52,7 +95,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
             let data;
             if (dataInputMethod === 'upload') {
                 if (!selectedFile) {
-                    throw new Error("请选择要上传的 CSV 文件。");
+                    throw new Error(safeT('training.errors.noFile'));
                 }
                 const formData = new FormData();
                 formData.append('asset_id', selectedAsset);
@@ -68,7 +111,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
 
             } else {
                 if (!s3DataPath) {
-                    throw new Error("请提供 S3 数据路径。");
+                    throw new Error(safeT('training.errors.noS3Path'));
                 }
                 const jobRequest = {
                     asset_id: selectedAsset,
@@ -101,7 +144,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                 errorMessage = JSON.stringify(err);
             }
             
-            setError(`训练任务启动失败：${errorMessage}`);
+            setError(`${safeT('training.errors.failedToStart')}：${errorMessage}`);
         } finally {
             setIsLoading(false);
         }
@@ -112,14 +155,14 @@ function ModelTraining({ activeTask, setActiveTask }) {
     return (
         <div style={{ padding: '0', fontFamily: 'inherit' }}>
             <h2 style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                🎯 开始新的模型训练
+                {safeT('training.title')}
             </h2>
             
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                 {/* 资产选择 */}
                 <div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        🏭 选择资产
+                        {safeT('training.selectAsset')}
                     </label>
                     <select 
                         value={selectedAsset} 
@@ -139,7 +182,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                 {/* 算法选择 */}
                 <div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        🤖 选择算法
+                        {safeT('training.selectAlgorithm')}
                     </label>
                     <select 
                         value={selectedAlgorithm} 
@@ -173,7 +216,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                 {/* 数据输入方式选择 */}
                 <div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-                        📁 数据输入方式
+                        {safeT('training.dataInputMethod')}
                     </label>
                     <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
                         <label style={{ 
@@ -195,7 +238,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                                 disabled={isLoading || activeTask}
                                 style={{ width: 'auto', margin: 0 }}
                             />
-                            📤 上传 CSV 文件
+                            {safeT('training.uploadCsv')}
                         </label>
                         <label style={{ 
                             display: 'flex', 
@@ -216,7 +259,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                                 disabled={isLoading || activeTask}
                                 style={{ width: 'auto', margin: 0 }}
                             />
-                            ☁️ S3 路径
+                            {safeT('training.s3Path')}
                         </label>
                     </div>
                 </div>
@@ -225,7 +268,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                 {dataInputMethod === 'upload' ? (
                     <div>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                            📊 训练数据文件
+                            {safeT('training.trainingDataFile')}
                         </label>
                         <input 
                             type="file" 
@@ -251,20 +294,20 @@ function ModelTraining({ activeTask, setActiveTask }) {
                                 color: '#48bb78',
                                 fontSize: '0.9rem'
                             }}>
-                                ✅ 已选择文件: {selectedFile.name}
+                                {safeT('training.fileSelected')}: {selectedFile.name}
                             </div>
                         )}
                     </div>
                 ) : (
                     <div>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                            ☁️ S3 数据路径 (Key)
+                            {safeT('training.s3DataPath')}
                         </label>
                         <input 
                             type="text" 
                             value={s3DataPath} 
                             onChange={e => setS3DataPath(e.target.value)} 
-                            placeholder="例如: training-data/data.csv" 
+                            placeholder={safeT('training.s3Placeholder')}
                             required 
                             disabled={isLoading || activeTask}
                             style={{ width: '100%', padding: '0.75rem 1rem' }}
@@ -275,7 +318,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                 {/* 训练参数 */}
                 <div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                        ⚙️ 训练轮数 (Epochs)
+                        {safeT('training.epochs')}
                     </label>
                     <input 
                         type="number" 
@@ -297,7 +340,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                         borderRadius: '8px',
                         border: '1px solid rgba(255, 193, 7, 0.2)'
                     }}>
-                        💡 神经网络模型 (TiDE, LSTM, TFT) 推荐 20-100 轮。LightGBM 不使用此参数。
+                        {safeT('training.epochsHint')}
                     </small>
                 </div>
 
@@ -309,7 +352,7 @@ function ModelTraining({ activeTask, setActiveTask }) {
                         padding: '1rem 2rem',
                         fontSize: '1rem',
                         fontWeight: '600',
-                        cursor: isLoading || activeTask || assets.length === 0 ? 'not-allowed' : 'pointer',
+                        cursor: isLoading || activeTask || assets.length === 0 ? 'not-allowed' : 'cursor',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -318,16 +361,16 @@ function ModelTraining({ activeTask, setActiveTask }) {
                 >
                     {isLoading ? (
                         <>
-                            <span className="pulse">⏳</span> 正在启动训练任务...
+                            <span className="pulse">⏳</span> {safeT('training.starting')}
                         </>
                     ) : activeTask ? (
                         <>
-                            <span className="pulse">🔄</span> 训练任务进行中
+                            <span className="pulse">🔄</span> {safeT('training.taskRunning')}
                         </>
                     ) : assets.length === 0 ? (
-                        <>❌ 无可用资产</>
+                        <>{safeT('training.noAssets')}</>
                     ) : (
-                        <>🚀 开始训练任务</>
+                        <>{safeT('training.startTraining')}</>
                     )}
                 </button>
             </form>
