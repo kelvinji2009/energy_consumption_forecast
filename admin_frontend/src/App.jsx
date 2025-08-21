@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import AssetList from './components/AssetList';
 import ModelList from './components/ModelList';
 import ApiKeyList from './components/ApiKeyList';
@@ -11,6 +11,43 @@ import ApiKeyPromptModal from './components/ApiKeyPromptModal';
 import LanguageToggle from './components/LanguageToggle';
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import './App.css';
+
+// 导航组件，处理高亮显示
+function Navigation({ safeT }) {
+  const location = useLocation();
+  
+  const navItems = [
+    { path: '/', label: safeT('nav.home') },
+    { path: '/forecast', label: safeT('nav.forecast') },
+    { path: '/anomaly-detection', label: safeT('nav.anomaly') },
+    { path: '/training', label: safeT('nav.training') },
+    { path: '/models', label: safeT('nav.models') },
+    { path: '/assets', label: safeT('nav.assets') },
+    { path: '/api-keys', label: safeT('nav.apiKeys') }
+  ];
+
+  return (
+    <nav>
+      <ul>
+        {navItems.map(item => (
+          <li key={item.path}>
+            <Link 
+              to={item.path}
+              style={{
+                color: location.pathname === item.path ? '#667eea' : 'inherit',
+                fontWeight: location.pathname === item.path ? '600' : 'normal',
+                textDecoration: location.pathname === item.path ? 'underline' : 'none',
+                textUnderlineOffset: '4px'
+              }}
+            >
+              {item.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
 
 function AppContent() {
   const { t } = useLanguage();
@@ -130,17 +167,7 @@ function AppContent() {
             <h1>🔋 能耗预测系统</h1>
             <LanguageToggle />
           </div>
-          <nav>
-            <ul>
-              <li><Link to="/">{safeT('nav.home')}</Link></li>
-              <li><Link to="/forecast">{safeT('nav.forecast')}</Link></li>
-              <li><Link to="/anomaly-detection">{safeT('nav.anomaly')}</Link></li>
-              <li><Link to="/training">{safeT('nav.training')}</Link></li>
-              <li><Link to="/models">{safeT('nav.models')}</Link></li>
-              <li><Link to="/assets">{safeT('nav.assets')}</Link></li>
-              <li><Link to="/api-keys">{safeT('nav.apiKeys')}</Link></li>
-            </ul>
-          </nav>
+          <Navigation safeT={safeT} />
         </header>
         <main className="container">
           <Routes>

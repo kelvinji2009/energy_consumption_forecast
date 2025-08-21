@@ -303,6 +303,10 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
         if 'timestamp' not in df.columns or 'value' not in df.columns:
             raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
 
+        # Fix timestamp format - convert various formats to ISO format
+        df['timestamp'] = pd.to_datetime(df['timestamp'], infer_datetime_format=True)
+        df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
         # --- Horizon Validation ---
         historical_hours = len(df)
         max_horizon = historical_hours // 4
@@ -418,8 +422,9 @@ async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: 
         if 'timestamp' not in df.columns or 'value' not in df.columns:
             raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
         
-        # Convert timestamp column to datetime objects before creating TimeSeriesDataPoint
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        # Fix timestamp format - convert various formats to ISO format
+        df['timestamp'] = pd.to_datetime(df['timestamp'], infer_datetime_format=True)
+        df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         
         historical_data = [TimeSeriesDataPoint(**row) for index, row in df.iterrows()]
 
@@ -524,6 +529,10 @@ async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: st
         
         if 'timestamp' not in df.columns or 'value' not in df.columns:
             raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
+
+        # Fix timestamp format - convert various formats to ISO format
+        df['timestamp'] = pd.to_datetime(df['timestamp'], infer_datetime_format=True)
+        df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
         historical_hours = len(df)
         max_horizon = historical_hours // 4
@@ -632,13 +641,15 @@ async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data
         s3_client = get_s3_client()
         response = s3_client.get_object(Bucket=S3_BUCKET_NAME, Key=s3_data_path)
         contents = response['Body'].read()
+        contents = response['Body'].read()
         df = pd.read_csv(io.BytesIO(contents))
         df.rename(columns={'energy_kwh': 'value'}, inplace=True)
         if 'timestamp' not in df.columns or 'value' not in df.columns:
             raise HTTPException(status_code=400, detail="CSV must have 'timestamp' and 'value' columns.")
         
-        # Convert timestamp column to datetime objects before creating TimeSeriesDataPoint
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        # Fix timestamp format - convert various formats to ISO format
+        df['timestamp'] = pd.to_datetime(df['timestamp'], infer_datetime_format=True)
+        df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         
         historical_data = [TimeSeriesDataPoint(**row) for index, row in df.iterrows()]
 
