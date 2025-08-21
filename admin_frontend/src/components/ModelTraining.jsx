@@ -7,11 +7,12 @@ function ModelTraining() {
   const { t, language } = useLanguage();
   const [assets, setAssets] = useState([]);
   const [selectedAsset, setSelectedAsset] = useState('');
-  const [modelType, setModelType] = useState('tft');
+  const [modelType, setModelType] = useState('LightGBM');
   const [dataInputMethod, setDataInputMethod] = useState('upload');
   const [s3DataPath, setS3DataPath] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileName, setFileName] = useState('');
+  const [nEpochs, setNEpochs] = useState(20);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -85,10 +86,13 @@ function ModelTraining() {
         return;
       }
       const formData = new FormData();
+      formData.append('asset_id', selectedAsset);
       formData.append('model_type', modelType);
       formData.append('file', selectedFile);
+      formData.append('n_epochs', nEpochs.toString());
+      formData.append('description', `UI-initiated training for ${selectedAsset} with ${modelType}`);
       options.body = formData;
-      url = `/assets/${selectedAsset}/train_from_csv`;
+      url = `/admin/training-jobs-from-csv`;
 
     } else if (dataInputMethod === 's3') {
       if (!s3DataPath) {
@@ -96,11 +100,15 @@ function ModelTraining() {
         setLoading(false);
         return;
       }
-      const params = new URLSearchParams({
+      options.headers = { 'Content-Type': 'application/json' };
+      options.body = JSON.stringify({
+        asset_id: selectedAsset,
         s3_data_path: s3DataPath,
         model_type: modelType,
+        n_epochs: nEpochs,
+        description: `UI-initiated training for ${selectedAsset} with ${modelType}`
       });
-      url = `/assets/${selectedAsset}/train_from_s3?${params.toString()}`;
+      url = `/admin/training-jobs`;
     }
 
     try {
@@ -191,11 +199,48 @@ function ModelTraining() {
                 transition: 'all 0.3s ease'
               }}
             >
-              <option value="tft">TFT (Temporal Fusion Transformer)</option>
-              <option value="lstm">LSTM (Long Short-Term Memory)</option>
-              <option value="lgbm">LightGBM</option>
-              <option value="tide">TiDE (Time-series Dense Encoder)</option>
+              <option value="LightGBM">LightGBM</option>
+              <option value="TiDE">TiDE (Time-series Dense Encoder)</option>
+              <option value="LSTM">LSTM (Long Short-Term Memory)</option>
+              <option value="TFT">TFT (Temporal Fusion Transformer)</option>
+              <option value="TFT (No Past Covariates)">TFT (No Past Covariates)</option>
             </select>
+          </div>
+
+          <div>
+            <label style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '500',
+              color: '#4a5568',
+              fontSize: '0.9rem'
+            }}>
+              🔢 {getText('training.epochs')}:
+            </label>
+            <input
+              type="number"
+              value={nEpochs}
+              onChange={e => setNEpochs(parseInt(e.target.value, 10))}
+              min="1"
+              max="200"
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '2px solid #e2e8f0',
+                borderRadius: '12px',
+                fontSize: '1rem',
+                background: 'white',
+                transition: 'all 0.3s ease'
+              }}
+            />
+            <small style={{
+              color: '#666',
+              fontSize: '0.8rem',
+              marginTop: '0.25rem',
+              display: 'block'
+            }}>
+              {getText('training.epochsHint')}
+            </small>
           </div>
 
           <div>
