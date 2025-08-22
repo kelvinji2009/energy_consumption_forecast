@@ -368,8 +368,8 @@ async def predict_from_csv(asset_id: str, http_request: Request, file: UploadFil
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 @app.post("/assets/{asset_id}/detect_anomalies_from_csv", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
-async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), model_id: int = Form(...), db: Session = Depends(get_db)):
-    print(f'\n--- Received anomaly detection request for asset: {asset_id} from CSV using model ID: {model_id} ---')
+async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: UploadFile = File(...), model_id: int = Form(...), sensitivity: float = Form(0.95, ge=0.80, le=0.99), db: Session = Depends(get_db)):
+    print(f'\n--- Received anomaly detection request for asset: {asset_id} from CSV using model ID: {model_id} with sensitivity: {sensitivity} ---')
     
     model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
     if not model_record:
@@ -510,7 +510,8 @@ async def detect_anomalies_from_csv(asset_id: str, http_request: Request, file: 
             series=series_scaled,
             past_covariates=past_covs,
             future_covariates=future_covs,
-            scaler=scaler
+            scaler=scaler,
+            sensitivity=sensitivity
         )
         
         print("--- Anomalies DataFrame (before sending to frontend) ---")
@@ -661,8 +662,12 @@ async def predict_from_s3(asset_id: str, http_request: Request, s3_data_path: st
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 @app.post("/assets/{asset_id}/detect_anomalies_from_s3", response_model=AnomalyDetectionResponse, dependencies=[Depends(verify_api_key)])
-async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data_path: str = Query(...), model_id: int = Query(...), db: Session = Depends(get_db)):
-    print(f'\n--- Received anomaly detection request for asset: {asset_id} from S3 path: {s3_data_path} using model ID: {model_id} ---')
+async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data_path: str = Query(...), model_id: int = Query(...), sensitivity: float = Query(0.95), db: Session = Depends(get_db)):
+    # 验证敏感度参数范围
+    if not (0.80 <= sensitivity <= 0.99):
+        raise HTTPException(status_code=400, detail="Sensitivity must be between 0.80 and 0.99")
+    
+    print(f'\n--- Received anomaly detection request for asset: {asset_id} from S3 path: {s3_data_path} using model ID: {model_id} with sensitivity: {sensitivity} ---')
 
     model_record = db.query(Model).filter(Model.id == model_id, Model.asset_id == asset_id).first()
     if not model_record:
@@ -751,7 +756,8 @@ async def detect_anomalies_from_s3(asset_id: str, http_request: Request, s3_data
             series=series_scaled,
             past_covariates=past_covs,
             future_covariates=future_covs,
-            scaler=scaler
+            scaler=scaler,
+            sensitivity=sensitivity
         )
         
         anomalies_data = [AnomalyDataPoint(timestamp=row['timestamp'], value=row['value']) for index, row in anomalies_df.iterrows()]

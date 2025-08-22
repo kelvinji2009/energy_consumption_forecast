@@ -379,10 +379,23 @@ def detect_anomalies(
     series: TimeSeries,
     past_covariates: TimeSeries = None,
     future_covariates: TimeSeries = None,
-    scaler: Scaler = None
+    scaler: Scaler = None,
+    sensitivity: float = 0.95  # 新增敏感度参数，默认95%分位数
 ) -> pd.DataFrame:
     """
     Detects anomalies in a new series using a pre-fitted model and detector.
+    
+    Args:
+        model: Pre-trained forecasting model
+        detector: Pre-fitted anomaly detector
+        series: Time series data to analyze
+        past_covariates: Optional past covariates
+        future_covariates: Optional future covariates
+        scaler: Optional data scaler
+        sensitivity: Anomaly detection sensitivity (0.80-0.99), higher values mean stricter detection
+        
+    Returns:
+        DataFrame with anomaly timestamps and values in original scale
     """
     print("--- Detecting Anomalies ---")
     
@@ -477,11 +490,12 @@ def detect_anomalies(
         
         # 使用95%分位数作为新阈值
         residuals_values = residuals.values().flatten()
-        dynamic_threshold = np.percentile(residuals_values, 95)
-        print(f"[DEBUG] Using dynamic threshold (95th percentile): {dynamic_threshold:.6f}")
+        sensitivity_percentile = sensitivity * 100
+        dynamic_threshold = np.percentile(residuals_values, sensitivity_percentile)
+        print(f"[DEBUG] Using dynamic threshold ({sensitivity_percentile:.1f}th percentile): {dynamic_threshold:.6f}")
         
         # 创建临时检测器
-        temp_detector = QuantileDetector(high_quantile=0.95)
+        temp_detector = QuantileDetector(high_quantile=sensitivity)
         temp_detector.fit(residuals)
         anomaly_scores = temp_detector.detect(residuals)
         print(f"[DEBUG] Dynamic detector found {(anomaly_scores.pd_series() == 1).sum()} anomalies")

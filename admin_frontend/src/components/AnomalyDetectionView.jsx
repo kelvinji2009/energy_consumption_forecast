@@ -43,6 +43,7 @@ function AnomalyDetectionView() {
   const [chartData, setChartData] = useState({ datasets: [] });
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileName, setFileName] = useState('');
+  const [sensitivity, setSensitivity] = useState(0.95);
   const chartRef = useRef(null);
 
   // 改进的翻译函数，确保能够正确获取当前语言的翻译
@@ -145,6 +146,7 @@ function AnomalyDetectionView() {
       }
       const formData = new FormData();
       formData.append('model_id', selectedModelId);
+      formData.append('sensitivity', sensitivity.toString());
       formData.append('file', selectedFile);
       options.body = formData;
       url = `/assets/${selectedAsset}/detect_anomalies_from_csv`;
@@ -158,6 +160,7 @@ function AnomalyDetectionView() {
       const params = new URLSearchParams({
         s3_data_path: s3DataPath,
         model_id: selectedModelId,
+        sensitivity: sensitivity.toString(),
       });
       url = `/assets/${selectedAsset}/detect_anomalies_from_s3?${params.toString()}`;
     }
@@ -339,6 +342,69 @@ function AnomalyDetectionView() {
                 ))
               )}
             </select>
+          </div>
+
+          <div>
+            <label style={{
+              display: 'block',
+              marginBottom: '0.5rem',
+              fontWeight: '500',
+              color: '#4a5568',
+              fontSize: '0.9rem'
+            }}>
+              🎯 {getText('anomaly.sensitivity')}:
+            </label>
+            <div style={{ marginBottom: '1rem' }}>
+              <input
+                type="range"
+                min="0.80"
+                max="0.99"
+                step="0.01"
+                value={sensitivity}
+                onChange={e => {
+                  const value = parseFloat(e.target.value);
+                  // 确保值在有效范围内
+                  if (value >= 0.80 && value <= 0.99) {
+                    setSensitivity(value);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  height: '6px',
+                  borderRadius: '3px',
+                  background: '#e2e8f0',
+                  outline: 'none',
+                  marginBottom: '0.5rem'
+                }}
+              />
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: '0.85rem',
+                color: '#718096'
+              }}>
+                <span>🔍 {getText('anomaly.moreAnomalies')}</span>
+                <span style={{
+                  background: '#667eea',
+                  color: 'white',
+                  padding: '0.25rem 0.75rem',
+                  borderRadius: '15px',
+                  fontWeight: '600'
+                }}>
+                  {(sensitivity * 100).toFixed(0)}%
+                </span>
+                <span>🎯 {getText('anomaly.fewerAnomalies')}</span>
+              </div>
+              <div style={{
+                fontSize: '0.8rem',
+                color: '#a0aec0',
+                textAlign: 'center',
+                marginTop: '0.5rem'
+              }}>
+                {getText('anomaly.sensitivityDesc')}
+              </div>
+            </div>
           </div>
 
           <div>
