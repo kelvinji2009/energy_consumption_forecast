@@ -98,7 +98,9 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
 
         # 5. Upload model, scalers, and detector to S3
         self.update_state(state='PROGRESS', meta={'status': 'Uploading artifacts to S3...'})
-        model_version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        # Use Asia/Shanghai timezone for model version timestamp
+        from zoneinfo import ZoneInfo
+        model_version = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d%H%M%S")
         s3_prefix = f"{asset_id}/{model_id}_{model_version}"
         
         model_key = f"{s3_prefix}/model.joblib"
@@ -123,7 +125,7 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
             "status": "COMPLETED", "model_version": model_version, "model_path": model_key,
             "scaler_path": scaler_target_key, "scaler_cov_path": scaler_cov_key, "detector_path": detector_key,
             "training_data_path": s3_data_path, "metrics": metrics,
-            "description": f"{model_type} model trained on {datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            "description": f"{model_type} model trained on {datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d')}"
         }
         if scaler_past_cov_key:
             update_values["scaler_past_cov_path"] = scaler_past_cov_key

@@ -219,7 +219,9 @@ function ForecastView() {
   const fetchModels = async (assetId) => {
     try {
       const data = await apiClient(`/admin/models?asset_id=${assetId}`);
-      setModels(data.filter(model => model.status === 'COMPLETED'));
+      const completedModels = data.filter(model => model.status === 'COMPLETED');
+      const sortedModels = completedModels.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setModels(sortedModels);
     } catch (err) {
       setError(getText('errors.fetchModels'));
     }
@@ -432,7 +434,7 @@ function ForecastView() {
               <option value="">{getText('forecast.chooseModel')}</option>
               {models.map(model => (
                 <option key={model.id} value={model.id}>
-                  v{model.version} - {model.model_type} | MAPE: {model.mape ? `${(model.mape * 100).toFixed(2)}%` : 'N/A'} | {getText('forecast.trained')}: {new Date(model.created_at).toLocaleDateString()} (ID: {model.id})
+                  v{model.model_version} - {model.model_type} | MAPE: {model.metrics?.mape?.toFixed(2) ?? 'N/A'}% | {getText('forecast.trained')}: {new Date(model.created_at).toLocaleDateString()} (ID: {model.id})
                 </option>
               ))}
             </select>
