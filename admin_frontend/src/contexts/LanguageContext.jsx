@@ -287,7 +287,14 @@ const translations = {
       assetName: '资产名称',
       assetDescription: '资产描述',
       successMessage: '操作成功',
-      deleteSuccessMessage: '删除成功'
+      deleteSuccessMessage: '删除成功',
+      usage: {
+        title: '使用说明',
+        authentication: '所有API请求需要在Header中包含 X-API-Key',
+        contentType: '请求Content-Type应为 application/json 或 multipart/form-data',
+        baseUrl: '基础URL',
+        errorHandling: '所有错误响应都包含详细的错误信息和状态码'
+      }
     },
 
     // Common errors
@@ -588,7 +595,14 @@ const translations = {
       assetName: 'Asset name',
       assetDescription: 'Asset description',
       successMessage: 'Operation successful',
-      deleteSuccessMessage: 'Deleted successfully'
+      deleteSuccessMessage: 'Deleted successfully',
+      usage: {
+        title: 'Usage Guide',
+        authentication: 'All API requests require X-API-Key in the header',
+        contentType: 'Request Content-Type should be application/json or multipart/form-data',
+        baseUrl: 'Base URL',
+        errorHandling: 'All error responses include detailed error messages and status codes'
+      }
     },
 
     // Common errors
