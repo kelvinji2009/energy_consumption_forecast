@@ -254,7 +254,8 @@ function ApiDocumentation() {
           parameters: [
             { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` },
             { name: 'file', type: 'file', required: true, description: getText('api.csvFile') },
-            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') }
+            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') },
+            { name: 'sensitivity', type: 'float', required: false, description: getText('api.sensitivity') }
           ],
           response: {
             type: 'object',
@@ -277,7 +278,8 @@ function ApiDocumentation() {
           parameters: [
             { name: 'asset_id', type: 'string', required: true, description: `${getText('api.assetId')}（${getText('api.pathParam')}）` },
             { name: 's3_data_path', type: 'string', required: true, description: getText('api.s3DataPath') },
-            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') }
+            { name: 'model_id', type: 'integer', required: true, description: getText('api.modelId') },
+            { name: 'sensitivity', type: 'float', required: false, description: getText('api.sensitivity') }
           ],
           response: {
             type: 'object',

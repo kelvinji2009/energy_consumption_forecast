@@ -337,6 +337,7 @@ const translations = {
       keyId: 'API密钥ID',
       assetName: '资产名称',
       assetDescription: '资产描述',
+      sensitivity: '异常检测敏感度 (0.80-0.99，默认：0.95)',
       successMessage: '操作成功',
       deleteSuccessMessage: '删除成功',
       usage: {
@@ -696,6 +697,7 @@ const translations = {
       keyId: 'API key ID',
       assetName: 'Asset name',
       assetDescription: 'Asset description',
+      sensitivity: 'Anomaly detection sensitivity (0.80-0.99, default: 0.95)',
       successMessage: 'Operation successful',
       deleteSuccessMessage: 'Deleted successfully',
       usage: {
