@@ -5,7 +5,7 @@ import numpy as np
 import os
 
 # --- Configuration ---
-INPUT_PATH = os.path.join('..', 'data', 'simulated_plant_data.csv')
+INPUT_PATH = os.path.join('data', 'simulated_plant_data.csv')
 OUTPUT_DIR = '.'
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, 'processed_data.csv')
 

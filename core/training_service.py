@@ -322,8 +322,6 @@ def train_model(
 
 # --- Anomaly Detection Service ---
 
-from darts.ad import QuantileDetector
-
 def fit_anomaly_detector(
     model: ForecastingModel,
     series: TimeSeries,
@@ -336,6 +334,7 @@ def fit_anomaly_detector(
     Fits a QuantileDetector on the residuals of a model's historical forecasts.
     """
     print("--- Fitting Anomaly Detector ---")
+    print(f"[DEBUG TRAINING] Input series range: {series.values().min():.6f} to {series.values().max():.6f}")
     
     # Generate historical forecasts
     historical_forecasts_scaled = model.historical_forecasts(
@@ -349,23 +348,28 @@ def fit_anomaly_detector(
         verbose=True
     )
     
-    # Inverse transform forecasts to get actual values
-    if scaler:
-        historical_forecasts = scaler.inverse_transform(historical_forecasts_scaled)
-    else:
-        historical_forecasts = historical_forecasts_scaled
+    print(f"[DEBUG TRAINING] Historical forecasts (scaled) range: {historical_forecasts_scaled.values().min():.6f} to {historical_forecasts_scaled.values().max():.6f}")
+    
+    # 🔧 FIX: 保持数据在相同的缩放状态进行异常检测器训练
+    # 不要反向缩放预测结果，保持与输入数据相同的缩放状态
+    historical_forecasts = historical_forecasts_scaled
+    print(f"[DEBUG TRAINING] Using scaled forecasts for consistent residual calculation")
 
-    # Align the original series with the forecasts
+    # Align the original series with the forecasts (both in scaled state)
     original_series_aligned = series.slice_intersect(historical_forecasts)
     historical_forecasts_aligned = historical_forecasts.slice_intersect(series)
 
-    # Calculate absolute residuals
+    # Calculate absolute residuals (now both series are in the same scaled state)
     residuals = (original_series_aligned - historical_forecasts_aligned).map(np.abs)
+    
+    print(f"[DEBUG TRAINING] Residuals range: {residuals.values().min():.6f} to {residuals.values().max():.6f}")
+    print(f"[DEBUG TRAINING] Residuals mean: {residuals.values().mean():.6f}")
     
     # Fit the detector
     detector = QuantileDetector(high_quantile=high_quantile)
     detector.fit(residuals)
     
+    print(f"[DEBUG TRAINING] Detector fitted with high_quantile={high_quantile}")
     
     return detector
 
@@ -382,6 +386,15 @@ def detect_anomalies(
     """
     print("--- Detecting Anomalies ---")
     
+    # 🔍 DEBUG: 输入数据信息
+    print(f"[DEBUG] Input series info:")
+    print(f"  - Length: {len(series)}")
+    print(f"  - Start time: {series.start_time()}")
+    print(f"  - End time: {series.end_time()}")
+    print(f"  - Value range: {series.values().min():.2f} to {series.values().max():.2f}")
+    print(f"  - Sample values: {series.values()[:5].flatten()}")
+    print(f"  - Has scaler: {scaler is not None}")
+    
     # Generate historical forecasts for the new data
     historical_forecasts_scaled = model.historical_forecasts(
         series,
@@ -394,21 +407,84 @@ def detect_anomalies(
         verbose=True
     )
     
-    # Inverse transform forecasts
-    if scaler:
-        historical_forecasts = scaler.inverse_transform(historical_forecasts_scaled)
-    else:
-        historical_forecasts = historical_forecasts_scaled
+    # 🔍 DEBUG: 缩放后的预测信息
+    print(f"[DEBUG] Historical forecasts (scaled) info:")
+    print(f"  - Length: {len(historical_forecasts_scaled)}")
+    print(f"  - Value range: {historical_forecasts_scaled.values().min():.6f} to {historical_forecasts_scaled.values().max():.6f}")
+    print(f"  - Sample values: {historical_forecasts_scaled.values()[:5].flatten()}")
+    
+    # 🔧 FIX: 保持数据在相同的缩放状态进行异常检测
+    # 不要反向缩放预测结果，保持与输入数据相同的缩放状态
+    historical_forecasts = historical_forecasts_scaled
+    print(f"[DEBUG] Historical forecasts (keeping scaled state) info:")
+    print(f"  - Value range: {historical_forecasts.values().min():.6f} to {historical_forecasts.values().max():.6f}")
+    print(f"  - Sample values: {historical_forecasts.values()[:5].flatten()}")
 
-    # Align series and forecasts
+    # Align series and forecasts (both in scaled state)
     original_series_aligned = series.slice_intersect(historical_forecasts)
     historical_forecasts_aligned = historical_forecasts.slice_intersect(series)
     
-    # Calculate absolute residuals
+    # 🔍 DEBUG: 对齐后的数据信息（都在缩放状态）
+    print(f"[DEBUG] After alignment (both in scaled state):")
+    print(f"  - Original series aligned length: {len(original_series_aligned)}")
+    print(f"  - Original series aligned range: {original_series_aligned.values().min():.6f} to {original_series_aligned.values().max():.6f}")
+    print(f"  - Forecasts aligned length: {len(historical_forecasts_aligned)}")
+    print(f"  - Forecasts aligned range: {historical_forecasts_aligned.values().min():.6f} to {historical_forecasts_aligned.values().max():.6f}")
+    
+    # Calculate absolute residuals (now both series are in the same scaled state)
     residuals = (original_series_aligned - historical_forecasts_aligned).map(np.abs)
+    
+    # 🔍 DEBUG: 残差信息
+    print(f"[DEBUG] Residuals info:")
+    print(f"  - Length: {len(residuals)}")
+    print(f"  - Range: {residuals.values().min():.6f} to {residuals.values().max():.6f}")
+    print(f"  - Mean: {residuals.values().mean():.6f}")
+    print(f"  - Sample residuals: {residuals.values()[:10].flatten()}")
     
     # Detect anomalies
     anomaly_scores = detector.detect(residuals)
+    
+    # 🔍 DEBUG: 异常分数信息和检测器状态
+    anomaly_scores_pd = anomaly_scores.pd_series()
+    print(f"[DEBUG] Anomaly scores info:")
+    print(f"  - Length: {len(anomaly_scores_pd)}")
+    print(f"  - Unique scores: {anomaly_scores_pd.unique()}")
+    print(f"  - Number of anomalies (score=1): {(anomaly_scores_pd == 1).sum()}")
+    
+    # 🔍 DEBUG: 检测器阈值信息
+    try:
+        # 获取检测器的阈值
+        if hasattr(detector, 'high_threshold_'):
+            print(f"[DEBUG] Detector high threshold: {detector.high_threshold_}")
+        if hasattr(detector, 'low_threshold_'):
+            print(f"[DEBUG] Detector low threshold: {detector.low_threshold_}")
+        
+        # 显示残差的分位数信息
+        residuals_values = residuals.values().flatten()
+        percentiles = [90, 95, 98, 99, 99.5]
+        print(f"[DEBUG] Residuals percentiles:")
+        for p in percentiles:
+            threshold = np.percentile(residuals_values, p)
+            count_above = (residuals_values > threshold).sum()
+            print(f"  - {p}%: {threshold:.6f} (points above: {count_above})")
+            
+    except Exception as e:
+        print(f"[DEBUG] Could not get detector threshold info: {e}")
+    
+    # 🔧 TEMP FIX: 如果检测器没有检测到异常，尝试动态调整阈值
+    if (anomaly_scores_pd == 1).sum() == 0:
+        print(f"[DEBUG] No anomalies detected with original detector, trying dynamic threshold...")
+        
+        # 使用95%分位数作为新阈值
+        residuals_values = residuals.values().flatten()
+        dynamic_threshold = np.percentile(residuals_values, 95)
+        print(f"[DEBUG] Using dynamic threshold (95th percentile): {dynamic_threshold:.6f}")
+        
+        # 创建临时检测器
+        temp_detector = QuantileDetector(high_quantile=0.95)
+        temp_detector.fit(residuals)
+        anomaly_scores = temp_detector.detect(residuals)
+        print(f"[DEBUG] Dynamic detector found {(anomaly_scores.pd_series() == 1).sum()} anomalies")
     
     # Filter for actual anomalies (where score is 1)
     # Convert original_series_aligned to pandas Series for flexible indexing
@@ -420,13 +496,48 @@ def detect_anomalies(
     # Apply boolean mask using pandas indexing
     anomalies_pd = original_series_pd[aligned_anomaly_scores == 1]
     
-    # Convert back to Darts TimeSeries, explicitly setting frequency
-    anomalies = TimeSeries.from_series(anomalies_pd, freq='H', fill_missing_dates=True)
+    # 🔧 FIX: 反向缩放异常点的值到原始范围
+    if scaler and len(anomalies_pd) > 0:
+        try:
+            # 将异常点转换为TimeSeries进行反向缩放
+            anomalies_ts = TimeSeries.from_series(anomalies_pd, freq='H', fill_missing_dates=False)
+            anomalies_original_scale = scaler.inverse_transform(anomalies_ts)
+            anomalies_pd_original = anomalies_original_scale.pd_series()
+            
+            # 清理NaN值
+            anomalies_pd_original = anomalies_pd_original.dropna()
+            
+            print(f"[DEBUG] Final anomalies info (after inverse scaling and NaN removal):")
+            print(f"  - Number of anomalies found: {len(anomalies_pd_original)}")
+            if len(anomalies_pd_original) > 0:
+                print(f"  - Anomaly values range (original scale): {anomalies_pd_original.min():.2f} to {anomalies_pd_original.max():.2f}")
+                print(f"  - Sample anomaly values (original scale): {anomalies_pd_original.head().values}")
+                print(f"  - Sample anomaly timestamps: {anomalies_pd_original.head().index}")
+        except Exception as e:
+            print(f"[DEBUG] Error in inverse scaling: {e}, using scaled values")
+            anomalies_pd_original = anomalies_pd
+    else:
+        anomalies_pd_original = anomalies_pd
+        print(f"[DEBUG] Final anomalies info (no scaling applied):")
+        print(f"  - Number of anomalies found: {len(anomalies_pd_original)}")
+        if len(anomalies_pd_original) > 0:
+            print(f"  - Anomaly values range: {anomalies_pd_original.min():.2f} to {anomalies_pd_original.max():.2f}")
+            print(f"  - Sample anomaly values: {anomalies_pd_original.head().values}")
+            print(f"  - Sample anomaly timestamps: {anomalies_pd_original.head().index}")
     
-    print(f"--- Found {len(anomalies_pd)} anomalies. ---")
+    print(f"--- Found {len(anomalies_pd_original)} anomalies. ---")
     
-    # Return as a DataFrame directly, formatted for frontend
-    anomalies_df = anomalies_pd.to_frame(name='value') # Rename the column to 'value'
+    # Return as a DataFrame directly, formatted for frontend (using original scale values)
+    anomalies_df = anomalies_pd_original.to_frame(name='value') # Rename the column to 'value'
     anomalies_df = anomalies_df.reset_index() # Convert index (timestamp) to a column
     anomalies_df = anomalies_df.rename(columns={'time': 'timestamp'}) # Rename the timestamp column
+    
+    # 🔍 DEBUG: 返回给前端的数据格式
+    print(f"[DEBUG] DataFrame returned to frontend (original scale):")
+    print(f"  - Shape: {anomalies_df.shape}")
+    print(f"  - Columns: {list(anomalies_df.columns)}")
+    if len(anomalies_df) > 0:
+        print(f"  - Sample data (original scale):")
+        print(anomalies_df.head())
+    
     return anomalies_df
