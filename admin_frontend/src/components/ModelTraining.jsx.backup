@@ -283,6 +283,7 @@ function ModelTraining() {
   };
 
   useEffect(() => {
+  useEffect(() => {
     const fetchAssets = async () => {
       try {
         const data = await apiClient('/admin/assets');

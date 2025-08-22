@@ -15,7 +15,7 @@ from sqlalchemy import func # Import func
 import sys
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(PROJECT_ROOT)
-from database.database import Asset, Model, ApiKey
+from database.database import Asset, Model, ApiKey, ModelTrainingParameter
 from celery_worker.tasks import train_model_task
 from api_server.dependencies import verify_api_key
 
@@ -83,6 +83,7 @@ class ApiKeyResponse(BaseModel):
     key_hash: str
     description: Optional[str] = None
     is_active: bool
+    is_active: bool
     created_at: datetime
     expires_at: Optional[datetime] = None
     class Config: from_attributes = True
@@ -91,12 +92,19 @@ class ApiKeyCreateResponse(ApiKeyResponse):
     key: str
 
 # --- NEW: Training Job Models ---
+class TrainingParameterBase(BaseModel):
+    parameter_name: str
+    parameter_value: str
+    parameter_type: str
+    parameter_category: Optional[str] = None
+
 class TrainingJobCreate(BaseModel):
     asset_id: str
     model_type: str = Field("LightGBM", description="The type of model to train.")
     s3_data_path: str = Field(..., description="The path (key) to the training CSV file in the S3 bucket.")
     description: Optional[str] = "LGBM model trained via API."
     n_epochs: int = Field(20, description="Number of training epochs for the model.")
+    parameters: Optional[List[TrainingParameterBase]] = Field(None, description="Additional training parameters")
 
 class TrainingJobResponse(BaseModel):
     message: str
@@ -109,6 +117,26 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     status: str
     result: Optional[dict] = None
+
+# --- Training Parameters Models ---
+class TrainingParameterBase(BaseModel):
+    parameter_name: str = Field(..., max_length=100)
+    parameter_value: str
+    parameter_type: str = Field(..., max_length=50)  # int, float, str, bool
+    parameter_category: Optional[str] = Field(None, max_length=50)  # model, training, data
+
+class TrainingParameterCreate(TrainingParameterBase):
+    model_id: int
+
+class TrainingParameterResponse(TrainingParameterBase):
+    id: int
+    model_id: int
+    created_at: datetime
+    class Config: from_attributes = True
+
+class TrainingParametersBatch(BaseModel):
+    model_id: int
+    parameters: List[TrainingParameterBase]
 
 # --- Celery App import for task status ---
 from celery_worker.celery_app import celery_app
@@ -233,6 +261,65 @@ def read_model(model_id: int, db: Session = Depends(get_db_session)):
         raise HTTPException(status_code=404, detail="Model not found.")
     return model
 
+# --- Training Parameters Endpoints ---
+@router.post("/training-parameters", response_model=TrainingParameterResponse, status_code=status.HTTP_201_CREATED)
+def create_training_parameter(param: TrainingParameterCreate, db: Session = Depends(get_db_session)):
+    """创建单个训练参数"""
+    # 验证模型是否存在
+    model = db.query(Model).filter(Model.id == param.model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Model with id {param.model_id} not found.")
+    
+    new_param = ModelTrainingParameter(**param.model_dump())
+    db.add(new_param)
+    db.commit()
+    db.refresh(new_param)
+    return new_param
+
+@router.post("/training-parameters/batch", response_model=List[TrainingParameterResponse], status_code=status.HTTP_201_CREATED)
+def create_training_parameters_batch(batch: TrainingParametersBatch, db: Session = Depends(get_db_session)):
+    """批量创建训练参数"""
+    # 验证模型是否存在
+    model = db.query(Model).filter(Model.id == batch.model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Model with id {batch.model_id} not found.")
+    
+    # 先删除该模型的现有参数
+    db.query(ModelTrainingParameter).filter(ModelTrainingParameter.model_id == batch.model_id).delete()
+    
+    # 创建新参数
+    new_params = []
+    for param_data in batch.parameters:
+        param_dict = param_data.model_dump()
+        param_dict['model_id'] = batch.model_id
+        new_param = ModelTrainingParameter(**param_dict)
+        db.add(new_param)
+        new_params.append(new_param)
+    
+    db.commit()
+    for param in new_params:
+        db.refresh(param)
+    
+    return new_params
+
+@router.get("/training-parameters/{model_id}", response_model=List[TrainingParameterResponse])
+def get_training_parameters(model_id: int, db: Session = Depends(get_db_session)):
+    """获取指定模型的训练参数"""
+    # 验证模型是否存在
+    model = db.query(Model).filter(Model.id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"Model with id {model_id} not found.")
+    
+    params = db.query(ModelTrainingParameter).filter(ModelTrainingParameter.model_id == model_id).all()
+    return params
+
+@router.delete("/training-parameters/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_training_parameters(model_id: int, db: Session = Depends(get_db_session)):
+    """删除指定模型的所有训练参数"""
+    deleted_count = db.query(ModelTrainingParameter).filter(ModelTrainingParameter.model_id == model_id).delete()
+    db.commit()
+    return
+
 # --- NEW: Training Job Endpoint ---
 @router.post("/training-jobs", response_model=TrainingJobResponse, status_code=status.HTTP_202_ACCEPTED)
 def create_training_job(job_request: TrainingJobCreate, db: Session = Depends(get_db_session)):
@@ -282,6 +369,7 @@ async def create_training_job_from_csv(
     model_type: str = Form(...),
     n_epochs: int = Form(20),
     description: Optional[str] = Form(None),
+    parameters: Optional[str] = Form(None),  # JSON字符串形式的参数
     file: UploadFile = File(...)
 ):
     """
@@ -319,7 +407,25 @@ async def create_training_job_from_csv(
     db.commit()
     db.refresh(new_model)
 
-    # 4. Dispatch Celery Task
+    # 4. 保存训练参数
+    if parameters:
+        try:
+            import json
+            params_data = json.loads(parameters)
+            for param_data in params_data:
+                param = ModelTrainingParameter(
+                    model_id=new_model.id,
+                    parameter_name=param_data['parameter_name'],
+                    parameter_value=param_data['parameter_value'],
+                    parameter_type=param_data['parameter_type'],
+                    parameter_category=param_data.get('parameter_category')
+                )
+                db.add(param)
+            db.commit()
+        except Exception as e:
+            print(f"Warning: Failed to save training parameters: {e}")
+
+    # 5. Dispatch Celery Task
     task = train_model_task.delay(
         model_id=new_model.id,
         asset_id=new_model.asset_id,

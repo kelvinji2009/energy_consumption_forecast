@@ -49,6 +49,16 @@ class Model(Base):
     description = Column(Text, nullable=True, comment="模型的用户友好描述")
     metrics = Column(JSONB, nullable=True, comment="训练指标，例如 MAPE, RMSE")
 
+class ModelTrainingParameter(Base):
+    __tablename__ = 'model_training_parameters'
+    id = Column(Integer, primary_key=True, autoincrement=True, comment="参数记录的唯一ID")
+    model_id = Column(Integer, nullable=False, index=True, comment="关联的模型ID (外键到 models.id)")
+    parameter_name = Column(String(100), nullable=False, comment="参数名称，例如 n_epochs, input_chunk_length")
+    parameter_value = Column(Text, nullable=False, comment="参数值，以字符串形式存储")
+    parameter_type = Column(String(50), nullable=False, comment="参数类型：int, float, str, bool")
+    parameter_category = Column(String(50), nullable=True, comment="参数分类：model, training, data")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), comment="创建时间")
+
 class ApiKey(Base):
     __tablename__ = 'api_keys'
     id = Column(UUID(as_uuid=True), primary_key=True, default=func.gen_random_uuid(), comment="API密钥的唯一ID")

@@ -8,6 +8,8 @@ function ModelList() {
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [expandedModels, setExpandedModels] = useState(new Set());
+  const [modelParameters, setModelParameters] = useState({});
 
   const fetchModels = useCallback(async (showLoading = false) => {
     console.log('ModelList: fetchModels called at', new Date().toLocaleTimeString());
@@ -27,6 +29,38 @@ function ModelList() {
       }
     }
   }, []);
+
+  // 获取模型训练参数
+  const fetchModelParameters = useCallback(async (modelId) => {
+    try {
+      const params = await apiClient(`/admin/training-parameters/${modelId}`);
+      setModelParameters(prev => ({
+        ...prev,
+        [modelId]: params
+      }));
+    } catch (error) {
+      console.error(`Error fetching parameters for model ${modelId}:`, error);
+      setModelParameters(prev => ({
+        ...prev,
+        [modelId]: []
+      }));
+    }
+  }, []);
+
+  // 切换模型展开状态
+  const toggleModelExpansion = (modelId) => {
+    const newExpanded = new Set(expandedModels);
+    if (newExpanded.has(modelId)) {
+      newExpanded.delete(modelId);
+    } else {
+      newExpanded.add(modelId);
+      // 如果还没有获取过参数，则获取参数
+      if (!modelParameters[modelId]) {
+        fetchModelParameters(modelId);
+      }
+    }
+    setExpandedModels(newExpanded);
+  };
 
   useEffect(() => {
     console.log('ModelList: useEffect mounted, setting up interval');
@@ -288,7 +322,8 @@ function ModelList() {
                     background: 'rgba(247, 250, 252, 0.8)',
                     padding: '0.75rem',
                     borderRadius: '8px',
-                    border: '1px solid #e2e8f0'
+                    border: '1px solid #e2e8f0',
+                    marginBottom: '1rem'
                   }}>
                     <strong style={{ color: '#4a5568', fontSize: '0.8rem' }}>
                       {t.models.s3Path}:
@@ -304,11 +339,168 @@ function ModelList() {
                     </div>
                   </div>
                 )}
+
+                {/* 训练参数展开按钮 */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  marginTop: '1rem'
+                }}>
+                  <button
+                    onClick={() => toggleModelExpansion(model.id)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      background: 'rgba(102, 126, 234, 0.1)',
+                      color: '#667eea',
+                      border: '1px solid rgba(102, 126, 234, 0.3)',
+                      borderRadius: '20px',
+                      fontSize: '0.8rem',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = 'rgba(102, 126, 234, 0.2)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'rgba(102, 126, 234, 0.1)';
+                    }}
+                  >
+                    {expandedModels.has(model.id) ? '🔼' : '🔽'}
+                    {expandedModels.has(model.id) ? '收起参数' : '查看训练参数'}
+                  </button>
+                </div>
+
+                {/* 训练参数展示区域 */}
+                {expandedModels.has(model.id) && (
+                  <div style={{
+                    marginTop: '1rem',
+                    background: 'rgba(102, 126, 234, 0.05)',
+                    borderRadius: '12px',
+                    padding: '1rem',
+                    border: '1px solid rgba(102, 126, 234, 0.2)',
+                    animation: 'slideDown 0.3s ease-out'
+                  }}>
+                    <h4 style={{
+                      margin: '0 0 1rem 0',
+                      color: '#4a5568',
+                      fontSize: '1rem',
+                      fontWeight: '600',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}>
+                      ⚙️ 训练参数配置
+                    </h4>
+                    
+                    {modelParameters[model.id] ? (
+                      modelParameters[model.id].length > 0 ? (
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                          gap: '0.75rem'
+                        }}>
+                          {modelParameters[model.id].map((param) => (
+                            <div
+                              key={param.id}
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.8)',
+                                padding: '0.75rem',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(226, 232, 240, 0.8)'
+                              }}
+                            >
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                marginBottom: '0.25rem'
+                              }}>
+                                <strong style={{
+                                  color: '#4a5568',
+                                  fontSize: '0.85rem',
+                                  fontWeight: '600'
+                                }}>
+                                  {param.parameter_name}
+                                </strong>
+                                {param.parameter_category && (
+                                  <span style={{
+                                    padding: '0.1rem 0.4rem',
+                                    background: param.parameter_category === 'model' ? '#e6fffa' : 
+                                               param.parameter_category === 'training' ? '#fff5f5' : '#f0fff4',
+                                    color: param.parameter_category === 'model' ? '#234e52' : 
+                                           param.parameter_category === 'training' ? '#742a2a' : '#22543d',
+                                    borderRadius: '4px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: '500'
+                                  }}>
+                                    {param.parameter_category}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{
+                                color: '#2d3748',
+                                fontSize: '0.9rem',
+                                fontWeight: '500',
+                                marginBottom: '0.25rem'
+                              }}>
+                                {param.parameter_value}
+                              </div>
+                              <div style={{
+                                color: '#718096',
+                                fontSize: '0.75rem'
+                              }}>
+                                类型: {param.parameter_type}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{
+                          textAlign: 'center',
+                          color: '#718096',
+                          fontSize: '0.9rem',
+                          padding: '1rem'
+                        }}>
+                          📝 该模型暂无训练参数记录
+                        </div>
+                      )
+                    ) : (
+                      <div style={{
+                        textAlign: 'center',
+                        color: '#718096',
+                        fontSize: '0.9rem',
+                        padding: '1rem'
+                      }}>
+                        ⏳ 正在加载参数...
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* 添加CSS动画 */}
+      <style>
+        {`
+          @keyframes slideDown {
+            from {
+              opacity: 0;
+              transform: translateY(-10px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+        `}
+      </style>
     </div>
   );
 }
