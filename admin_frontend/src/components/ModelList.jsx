@@ -393,7 +393,7 @@ function ModelList() {
                       alignItems: 'center',
                       gap: '0.5rem'
                     }}>
-                      ⚙️ 训练参数配置
+                      ⚙️ {t.models.trainingParameters}
                     </h4>
                     
                     {modelParameters[model.id] ? (
@@ -453,7 +453,7 @@ function ModelList() {
                                 color: '#718096',
                                 fontSize: '0.75rem'
                               }}>
-                                类型: {param.parameter_type}
+                                {t.models.parameterType}: {param.parameter_type}
                               </div>
                             </div>
                           ))}

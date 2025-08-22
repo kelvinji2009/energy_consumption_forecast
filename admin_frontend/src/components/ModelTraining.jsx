@@ -56,23 +56,23 @@ function ModelTraining() {
     const baseParams = [
       {
         name: 'input_chunk_length',
-        label: '输入序列长度',
+        label: getText('training.parameters.input_chunk_length'),
         type: 'int',
         default: 168, // 7天 * 24小时
         min: 24,
         max: 720,
         category: 'data',
-        description: '用于预测的历史数据长度（小时）'
+        description: getText('training.parameters.input_chunk_length_desc')
       },
       {
         name: 'output_chunk_length',
-        label: '输出序列长度',
+        label: getText('training.parameters.output_chunk_length'),
         type: 'int',
         default: 24,
         min: 1,
         max: 168,
         category: 'data',
-        description: '预测的未来时间长度（小时）'
+        description: getText('training.parameters.output_chunk_length_desc')
       }
     ];
 
@@ -80,183 +80,183 @@ function ModelTraining() {
       'LightGBM': [
         {
           name: 'random_state',
-          label: '随机种子',
+          label: getText('training.parameters.random_state'),
           type: 'int',
           default: 42,
           min: 0,
           max: 1000,
           category: 'model',
-          description: '确保结果可重现'
+          description: getText('training.parameters.random_state_desc')
         }
       ],
       'TiDE': [
         {
           name: 'hidden_size',
-          label: '隐藏层大小',
+          label: getText('training.parameters.hidden_size'),
           type: 'int',
           default: 64,
           min: 16,
           max: 512,
           category: 'model',
-          description: '神经网络隐藏层的神经元数量'
+          description: getText('training.parameters.hidden_size_desc')
         },
         {
           name: 'random_state',
-          label: '随机种子',
+          label: getText('training.parameters.random_state'),
           type: 'int',
           default: 42,
           min: 0,
           max: 1000,
           category: 'model',
-          description: '确保结果可重现'
+          description: getText('training.parameters.random_state_desc')
         }
       ],
       'LSTM': [
         {
           name: 'training_length',
-          label: '训练长度',
+          label: getText('training.parameters.training_length'),
           type: 'int',
           default: 168,
           min: 24,
           max: 720,
           category: 'training',
-          description: '训练时使用的序列长度'
+          description: getText('training.parameters.training_length_desc')
         },
         {
           name: 'random_state',
-          label: '随机种子',
+          label: getText('training.parameters.random_state'),
           type: 'int',
           default: 42,
           min: 0,
           max: 1000,
           category: 'model',
-          description: '确保结果可重现'
+          description: getText('training.parameters.random_state_desc')
         }
       ],
       'TFT': [
         {
           name: 'hidden_size',
-          label: '隐藏层大小',
+          label: getText('training.parameters.hidden_size'),
           type: 'int',
           default: 64,
           min: 16,
           max: 512,
           category: 'model',
-          description: '神经网络隐藏层的神经元数量'
+          description: getText('training.parameters.hidden_size_desc')
         },
         {
           name: 'lstm_layers',
-          label: 'LSTM层数',
+          label: getText('training.parameters.lstm_layers'),
           type: 'int',
           default: 1,
           min: 1,
           max: 4,
           category: 'model',
-          description: 'LSTM层的数量'
+          description: getText('training.parameters.lstm_layers_desc')
         },
         {
           name: 'num_attention_heads',
-          label: '注意力头数',
+          label: getText('training.parameters.num_attention_heads'),
           type: 'int',
           default: 4,
           min: 1,
           max: 16,
           category: 'model',
-          description: '多头注意力机制的头数'
+          description: getText('training.parameters.num_attention_heads_desc')
         },
         {
           name: 'dropout',
-          label: 'Dropout率',
+          label: getText('training.parameters.dropout'),
           type: 'float',
           default: 0.1,
           min: 0.0,
           max: 0.5,
           step: 0.05,
           category: 'model',
-          description: '防止过拟合的dropout比例'
+          description: getText('training.parameters.dropout_desc')
         },
         {
           name: 'batch_size',
-          label: '批次大小',
+          label: getText('training.parameters.batch_size'),
           type: 'int',
           default: 16,
           min: 4,
           max: 128,
           category: 'training',
-          description: '每个训练批次的样本数量'
+          description: getText('training.parameters.batch_size_desc')
         },
         {
           name: 'random_state',
-          label: '随机种子',
+          label: getText('training.parameters.random_state'),
           type: 'int',
           default: 42,
           min: 0,
           max: 1000,
           category: 'model',
-          description: '确保结果可重现'
+          description: getText('training.parameters.random_state_desc')
         }
       ],
       'TFT (No Past Covariates)': [
         {
           name: 'hidden_size',
-          label: '隐藏层大小',
+          label: getText('training.parameters.hidden_size'),
           type: 'int',
           default: 64,
           min: 16,
           max: 512,
           category: 'model',
-          description: '神经网络隐藏层的神经元数量'
+          description: getText('training.parameters.hidden_size_desc')
         },
         {
           name: 'lstm_layers',
-          label: 'LSTM层数',
+          label: getText('training.parameters.lstm_layers'),
           type: 'int',
           default: 1,
           min: 1,
           max: 4,
           category: 'model',
-          description: 'LSTM层的数量'
+          description: getText('training.parameters.lstm_layers_desc')
         },
         {
           name: 'num_attention_heads',
-          label: '注意力头数',
+          label: getText('training.parameters.num_attention_heads'),
           type: 'int',
           default: 4,
           min: 1,
           max: 16,
           category: 'model',
-          description: '多头注意力机制的头数'
+          description: getText('training.parameters.num_attention_heads_desc')
         },
         {
           name: 'dropout',
-          label: 'Dropout率',
+          label: getText('training.parameters.dropout'),
           type: 'float',
           default: 0.1,
           min: 0.0,
           max: 0.5,
           step: 0.05,
           category: 'model',
-          description: '防止过拟合的dropout比例'
+          description: getText('training.parameters.dropout_desc')
         },
         {
           name: 'batch_size',
-          label: '批次大小',
+          label: getText('training.parameters.batch_size'),
           type: 'int',
           default: 16,
           min: 4,
           max: 128,
           category: 'training',
-          description: '每个训练批次的样本数量'
+          description: getText('training.parameters.batch_size_desc')
         },
         {
           name: 'random_state',
-          label: '随机种子',
+          label: getText('training.parameters.random_state'),
           type: 'int',
           default: 42,
           min: 0,
           max: 1000,
           category: 'model',
-          description: '确保结果可重现'
+          description: getText('training.parameters.random_state_desc')
         }
       ]
     };
@@ -414,7 +414,7 @@ function ModelTraining() {
             color: '#666',
             marginTop: '0.5rem'
           }}>
-            {getText('training.status')}: {taskStatus}
+            {getText('training.statusLabel')}: {taskStatus}
           </div>
         )}
       </div>
@@ -666,7 +666,7 @@ function ModelTraining() {
               alignItems: 'center',
               gap: '0.5rem'
             }}>
-              ⚙️ 模型参数配置
+              ⚙️ {getText('training.parameters.title')}
             </h3>
             
             {getModelParameters(modelType).map((param) => (

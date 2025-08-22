@@ -102,6 +102,51 @@ const translations = {
         noFile: '请选择文件',
         noS3Path: '请输入S3路径',
         failedToStart: '启动训练失败'
+      },
+      status: {
+        PENDING: '等待中',
+        PROGRESS: '训练中',
+        SUCCESS: '训练完成',
+        FAILURE: '训练失败',
+        RETRY: '重试中',
+        REVOKED: '已取消'
+      },
+      trainingCompleted: '训练完成！',
+      trainingFailed: '训练失败',
+      trainingInProgress: '训练进行中',
+      statusLabel: '状态',
+      parameters: {
+        inputSequenceLength: '输入序列长度',
+        outputSequenceLength: '输出序列长度',
+        inputSequenceLengthHint: '用于训练的历史数据长度',
+        outputSequenceLengthHint: '预测的未来数据长度',
+        title: '模型参数配置',
+        // 基础参数
+        input_chunk_length: '输入序列长度',
+        output_chunk_length: '输出序列长度',
+        input_chunk_length_desc: '用于预测的历史数据长度（小时）',
+        output_chunk_length_desc: '预测的未来时间长度（小时）',
+        // 模型特定参数
+        random_state: '随机种子',
+        random_state_desc: '确保结果可重现',
+        hidden_size: '隐藏层大小',
+        hidden_size_desc: '神经网络隐藏层的神经元数量',
+        training_length: '训练长度',
+        training_length_desc: '训练时使用的序列长度',
+        lstm_layers: 'LSTM层数',
+        lstm_layers_desc: 'LSTM层的数量',
+        num_attention_heads: '注意力头数',
+        num_attention_heads_desc: '多头注意力机制的头数',
+        dropout: 'Dropout率',
+        dropout_desc: '防止过拟合的dropout比例',
+        batch_size: '批次大小',
+        batch_size_desc: '每个训练批次的样本数量',
+        // 参数分类
+        category: {
+          model: '模型参数',
+          training: '训练参数',
+          data: '数据参数'
+        }
       }
     },
 
@@ -178,7 +223,9 @@ const translations = {
         training: '训练中',
         pending: '等待中',
         failed: '失败'
-      }
+      },
+      trainingParameters: '训练参数配置',
+      parameterType: '类型'
     },
 
     // Assets page
@@ -410,6 +457,51 @@ const translations = {
         noFile: 'Please select a file',
         noS3Path: 'Please enter S3 path',
         failedToStart: 'Failed to start training'
+      },
+      status: {
+        PENDING: 'Pending',
+        PROGRESS: 'Training',
+        SUCCESS: 'Training Completed',
+        FAILURE: 'Training Failed',
+        RETRY: 'Retrying',
+        REVOKED: 'Cancelled'
+      },
+      trainingCompleted: 'Training Completed!',
+      trainingFailed: 'Training Failed',
+      trainingInProgress: 'Training in Progress',
+      statusLabel: 'Status',
+      parameters: {
+        inputSequenceLength: 'Input Sequence Length',
+        outputSequenceLength: 'Output Sequence Length',
+        inputSequenceLengthHint: 'Length of historical data for training',
+        outputSequenceLengthHint: 'Length of future data to predict',
+        title: 'Model Parameter Configuration',
+        // Base parameters
+        input_chunk_length: 'Input Sequence Length',
+        output_chunk_length: 'Output Sequence Length',
+        input_chunk_length_desc: 'Length of historical data for prediction (hours)',
+        output_chunk_length_desc: 'Length of future time to predict (hours)',
+        // Model-specific parameters
+        random_state: 'Random Seed',
+        random_state_desc: 'Ensures reproducible results',
+        hidden_size: 'Hidden Size',
+        hidden_size_desc: 'Number of neurons in neural network hidden layers',
+        training_length: 'Training Length',
+        training_length_desc: 'Sequence length used during training',
+        lstm_layers: 'LSTM Layers',
+        lstm_layers_desc: 'Number of LSTM layers',
+        num_attention_heads: 'Attention Heads',
+        num_attention_heads_desc: 'Number of multi-head attention heads',
+        dropout: 'Dropout Rate',
+        dropout_desc: 'Dropout ratio to prevent overfitting',
+        batch_size: 'Batch Size',
+        batch_size_desc: 'Number of samples per training batch',
+        // Parameter categories
+        category: {
+          model: 'Model Parameters',
+          training: 'Training Parameters',
+          data: 'Data Parameters'
+        }
       }
     },
 
@@ -486,7 +578,9 @@ const translations = {
         training: 'Training',
         pending: 'Pending',
         failed: 'Failed'
-      }
+      },
+      trainingParameters: 'Training Parameter Configuration',
+      parameterType: 'Type'
     },
 
     // Assets page
