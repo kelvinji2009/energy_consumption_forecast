@@ -191,11 +191,8 @@ function AppContent() {
       }
     ], [t, language]); // 添加language和t作为依赖项
 
-    // 强制重新渲染的键，当语言变化时会改变
-    const renderKey = `welcome-page-${language}`;
-    
     return (
-      <Container maxWidth="lg" key={renderKey}>
+      <Container maxWidth="lg">
         <Box sx={{ textAlign: 'center', py: 4 }}>
           <Typography 
             variant="h1" 
@@ -277,7 +274,6 @@ function AppContent() {
                           overflow: 'hidden',
                           textOverflow: 'ellipsis'
                         }}
-                        key={`feature-title-${language}-${index}`}
                       >
                         {feature.title}
                       </Typography>
@@ -293,7 +289,6 @@ function AppContent() {
                           overflow: 'hidden',
                           textOverflow: 'ellipsis'
                         }}
-                        key={`feature-desc-${language}-${index}`}
                       >
                         {feature.desc}
                       </Typography>
@@ -436,14 +431,13 @@ function AppContent() {
         </Box>
 
         <Box component="main" sx={{ flexGrow: 1, py: 3 }}>
-          {/* 使用key强制在语言变化时重新渲染所有路由 */}
-          <Routes key={`routes-${language}`}>
+          <Routes>
             <Route path="/" element={<WelcomePage />} />
             <Route path="/forecast" element={
               <Container maxWidth="xl">
                 <Card>
                   <CardContent>
-                    <ForecastView key={`forecast-${language}`} />
+                    <ForecastView />
                   </CardContent>
                 </Card>
               </Container>
@@ -452,7 +446,7 @@ function AppContent() {
               <Container maxWidth="xl">
                 <Card>
                   <CardContent>
-                    <AnomalyDetectionView key={`anomaly-${language}`} />
+                    <AnomalyDetectionView />
                   </CardContent>
                 </Card>
               </Container>
@@ -462,7 +456,6 @@ function AppContent() {
                 <Card>
                   <CardContent>
                     <ModelTraining 
-                      key={`training-${language}`}
                       setActiveTask={setActiveTask} 
                       activeTask={activeTask} 
                     />
@@ -472,24 +465,24 @@ function AppContent() {
             } />
             <Route path="/assets" element={
               <Container maxWidth="xl">
-                <AssetList key={`assets-${language}`} />
+                <AssetList />
               </Container>
             } />
             <Route path="/models" element={
               <Container maxWidth="xl">
-                <ModelList key={`models-${language}`} />
+                <ModelList />
               </Container>
             } />
             <Route path="/api-keys" element={
               <Container maxWidth="xl">
-                <ApiKeyList key={`api-keys-${language}`} />
+                <ApiKeyList />
               </Container>
             } />
             <Route path="/api-docs" element={
               <Container maxWidth="xl">
                 <Card>
                   <CardContent>
-                    <ApiDocumentation key={`api-docs-${language}`} />
+                    <ApiDocumentation />
                   </CardContent>
                 </Card>
               </Container>
@@ -536,18 +529,20 @@ function App() {
     // 添加事件监听器
     window.addEventListener('storage', handleStorageChange);
     
-    // 创建一个定时器定期检查localStorage
-    const intervalId = setInterval(() => {
-      const newLanguage = localStorage.getItem('language') || 'zh';
+    // 移除定时器，只依赖storage事件和自定义事件
+    const handleLanguageChange = (event) => {
+      const newLanguage = event.detail || localStorage.getItem('language') || 'zh';
       if (newLanguage !== currentLanguage) {
-        console.log("App定时检测到语言变化:", newLanguage);
+        console.log("App检测到语言变化:", newLanguage);
         setCurrentLanguage(newLanguage);
       }
-    }, 1000); // 每秒检查一次
+    };
+    
+    window.addEventListener('languageChanged', handleLanguageChange);
     
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      clearInterval(intervalId);
+      window.removeEventListener('languageChanged', handleLanguageChange);
     };
   }, [currentLanguage]);
   
@@ -555,8 +550,7 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <LanguageProvider>
-        {/* 使用key强制整个应用在语言切换时重新渲染 */}
-        <AppContent key={`app-content-${currentLanguage}`} />
+        <AppContent />
       </LanguageProvider>
     </ThemeProvider>
   );

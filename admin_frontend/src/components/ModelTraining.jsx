@@ -16,6 +16,19 @@ function ModelTraining() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  const [taskId, setTaskId] = useState(() => {
+    return localStorage.getItem('trainingTaskId') || null;
+  });
+  const [taskStatus, setTaskStatus] = useState(() => {
+    return localStorage.getItem('trainingTaskStatus') || null;
+  });
+  const [taskProgress, setTaskProgress] = useState(() => {
+    return localStorage.getItem('trainingTaskProgress') || null;
+  });
+  const [trainingResult, setTrainingResult] = useState(() => {
+    const saved = localStorage.getItem('trainingResult');
+    return saved ? JSON.parse(saved) : null;
+  });
 
   // 改进的翻译函数，确保能够正确获取当前语言的翻译
   const getText = (key) => {
@@ -51,7 +64,58 @@ function ModelTraining() {
       }
     };
     fetchAssets();
-  }, [language]); // 添加language依赖，确保语言切换时重新获取资产列表
+  }, [language]);
+
+  // 任务状态轮询
+  useEffect(() => {
+    if (!taskId) return;
+    
+    // 如果有taskId但loading为false，说明是从localStorage恢复的状态，需要重新开始轮询
+    if (taskId && !loading && !success && !error) {
+      setLoading(true);
+    }
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await apiClient(`/admin/tasks/${taskId}/status`);
+        const newStatus = status.status;
+        const newProgress = status.result?.status || null;
+        
+        setTaskStatus(newStatus);
+        setTaskProgress(newProgress);
+        
+        // 保存状态到localStorage
+        localStorage.setItem('trainingTaskStatus', newStatus);
+        localStorage.setItem('trainingTaskProgress', newProgress || '');
+        
+        if (newStatus === 'SUCCESS') {
+          clearInterval(pollInterval);
+          setLoading(false);
+          setTrainingResult(status.result);
+          setSuccess(getText('training.trainingCompleted'));
+          
+          // 保存结果并清理localStorage
+          localStorage.setItem('trainingResult', JSON.stringify(status.result));
+          localStorage.removeItem('trainingTaskId');
+          localStorage.removeItem('trainingTaskStatus');
+          localStorage.removeItem('trainingTaskProgress');
+        } else if (newStatus === 'FAILURE') {
+          clearInterval(pollInterval);
+          setLoading(false);
+          setError(getText('training.trainingFailed') + ': ' + (status.result?.error || getText('errors.unexpected')));
+          
+          // 清理localStorage
+          localStorage.removeItem('trainingTaskId');
+          localStorage.removeItem('trainingTaskStatus');
+          localStorage.removeItem('trainingTaskProgress');
+        }
+      } catch (err) {
+        console.error('Failed to fetch task status:', err);
+      }
+    }, 2000); // 每2秒轮询一次
+    
+    return () => clearInterval(pollInterval);
+  }, [taskId, getText, loading, success, error]);
 
   const handleFileChange = (file) => {
     if (file && file.type === "text/csv") {
@@ -65,10 +129,74 @@ function ModelTraining() {
     }
   };
 
+  // 渲染训练状态
+  const renderTrainingStatus = () => {
+    if (!taskId || !loading) return null;
+    
+    const statusIcons = {
+      'Initializing training...': '🔧',
+      'Downloading training data from S3...': '📥',
+      'Training': '🧠',
+      'Fitting anomaly detector...': '🔍',
+      'Uploading artifacts to S3...': '📤'
+    };
+    
+    // 检查是否包含训练相关的状态
+    const getStatusIcon = (progress) => {
+      if (!progress) return '🔄';
+      for (const [key, icon] of Object.entries(statusIcons)) {
+        if (progress.includes(key) || progress.includes(key.toLowerCase())) {
+          return icon;
+        }
+      }
+      return '🔄';
+    };
+    
+    return (
+      <div style={{
+        padding: '1rem',
+        background: 'rgba(102, 126, 234, 0.1)',
+        borderRadius: '12px',
+        border: '2px solid #667eea',
+        marginBottom: '1rem'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '1rem',
+          color: '#4a5568',
+          fontWeight: '500'
+        }}>
+          <span style={{
+            display: 'inline-block',
+            animation: 'spin 1s linear infinite'
+          }}>
+            {getStatusIcon(taskProgress)}
+          </span>
+          {taskProgress || getText('training.trainingInProgress')}
+        </div>
+        {taskStatus && (
+          <div style={{
+            fontSize: '0.8rem',
+            color: '#666',
+            marginTop: '0.5rem'
+          }}>
+            {getText('training.status')}: {taskStatus}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const handleTrain = async () => {
     setLoading(true);
     setError(null);
     setSuccess(null);
+    setTaskId(null);
+    setTaskStatus(null);
+    setTaskProgress(null);
+    setTrainingResult(null);
 
     if (!selectedAsset) {
       setError(getText('errors.selectAsset'));
@@ -113,17 +241,33 @@ function ModelTraining() {
 
     try {
       const result = await apiClient(url, options);
-      setSuccess(getText('training.trainingStarted') + ` ${getText('training.taskId')}: ${result.task_id}`);
+      setTaskId(result.task_id);
+      
+      // 保存taskId到localStorage
+      localStorage.setItem('trainingTaskId', result.task_id);
+      // 清理之前的结果
+      localStorage.removeItem('trainingResult');
+      
+      // 不在这里设置loading为false，让状态轮询来控制
     } catch (err) {
       console.error("Training error:", err);
       setError(getText('errors.trainingFailed') + (err.message || getText('errors.unexpected')));
-    } finally {
       setLoading(false);
     }
   };
 
   return (
     <div style={{ padding: '2rem' }}>
+      {/* 添加CSS动画 */}
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+      
       <div style={{
         background: 'rgba(255, 255, 255, 0.95)',
         backdropFilter: 'blur(10px)',
@@ -158,14 +302,16 @@ function ModelTraining() {
             <select
               value={selectedAsset}
               onChange={e => setSelectedAsset(e.target.value)}
+              disabled={loading}
               style={{
                 width: '100%',
                 padding: '0.75rem',
                 border: '2px solid #e2e8f0',
                 borderRadius: '12px',
                 fontSize: '1rem',
-                background: 'white',
-                transition: 'all 0.3s ease'
+                background: loading ? '#f7fafc' : 'white',
+                transition: 'all 0.3s ease',
+                cursor: loading ? 'not-allowed' : 'pointer'
               }}
             >
               {assets.map(asset => (
@@ -189,14 +335,16 @@ function ModelTraining() {
             <select
               value={modelType}
               onChange={e => setModelType(e.target.value)}
+              disabled={loading}
               style={{
                 width: '100%',
                 padding: '0.75rem',
                 border: '2px solid #e2e8f0',
                 borderRadius: '12px',
                 fontSize: '1rem',
-                background: 'white',
-                transition: 'all 0.3s ease'
+                background: loading ? '#f7fafc' : 'white',
+                transition: 'all 0.3s ease',
+                cursor: loading ? 'not-allowed' : 'pointer'
               }}
             >
               <option value="LightGBM">LightGBM</option>
@@ -223,14 +371,16 @@ function ModelTraining() {
               onChange={e => setNEpochs(parseInt(e.target.value, 10))}
               min="1"
               max="200"
+              disabled={loading}
               style={{
                 width: '100%',
                 padding: '0.75rem',
                 border: '2px solid #e2e8f0',
                 borderRadius: '12px',
                 fontSize: '1rem',
-                background: 'white',
-                transition: 'all 0.3s ease'
+                background: loading ? '#f7fafc' : 'white',
+                transition: 'all 0.3s ease',
+                cursor: loading ? 'not-allowed' : 'text'
               }}
             />
             <small style={{
@@ -262,16 +412,18 @@ function ModelTraining() {
                 background: dataInputMethod === 'upload' ? '#667eea' : 'rgba(255, 255, 255, 0.8)',
                 color: dataInputMethod === 'upload' ? 'white' : '#4a5568',
                 borderRadius: '25px',
-                cursor: 'pointer',
+                cursor: loading ? 'not-allowed' : 'pointer',
                 transition: 'all 0.3s ease',
                 border: '2px solid',
-                borderColor: dataInputMethod === 'upload' ? '#667eea' : '#e2e8f0'
+                borderColor: dataInputMethod === 'upload' ? '#667eea' : '#e2e8f0',
+                opacity: loading ? 0.6 : 1
               }}>
                 <input
                   type="radio"
                   value="upload"
                   checked={dataInputMethod === 'upload'}
-                  onChange={() => setDataInputMethod('upload')}
+                  onChange={() => !loading && setDataInputMethod('upload')}
+                  disabled={loading}
                   style={{ display: 'none' }}
                 />
                 📤 {getText('training.uploadCSV')}
@@ -284,16 +436,18 @@ function ModelTraining() {
                 background: dataInputMethod === 's3' ? '#667eea' : 'rgba(255, 255, 255, 0.8)',
                 color: dataInputMethod === 's3' ? 'white' : '#4a5568',
                 borderRadius: '25px',
-                cursor: 'pointer',
+                cursor: loading ? 'not-allowed' : 'pointer',
                 transition: 'all 0.3s ease',
                 border: '2px solid',
-                borderColor: dataInputMethod === 's3' ? '#667eea' : '#e2e8f0'
+                borderColor: dataInputMethod === 's3' ? '#667eea' : '#e2e8f0',
+                opacity: loading ? 0.6 : 1
               }}>
                 <input
                   type="radio"
                   value="s3"
                   checked={dataInputMethod === 's3'}
-                  onChange={() => setDataInputMethod('s3')}
+                  onChange={() => !loading && setDataInputMethod('s3')}
+                  disabled={loading}
                   style={{ display: 'none' }}
                 />
                 ☁️ {getText('training.s3Path')}
@@ -315,13 +469,15 @@ function ModelTraining() {
                   accept=".csv"
                   onFileChange={handleFileChange}
                   selectedFile={selectedFile}
+                  disabled={loading}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
                     border: '2px dashed #cbd5e0',
                     borderRadius: '12px',
-                    background: '#f7fafc',
-                    cursor: 'pointer'
+                    background: loading ? '#f7fafc' : '#f7fafc',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.6 : 1
                   }}
                 />
               </div>
@@ -341,18 +497,23 @@ function ModelTraining() {
                   value={s3DataPath}
                   onChange={e => setS3DataPath(e.target.value)}
                   placeholder="s3://bucket/path/to/data.csv"
+                  disabled={loading}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
                     border: '2px solid #e2e8f0',
                     borderRadius: '12px',
                     fontSize: '1rem',
-                    background: 'white'
+                    background: loading ? '#f7fafc' : 'white',
+                    cursor: loading ? 'not-allowed' : 'text'
                   }}
                 />
               </div>
             )}
           </div>
+
+          {/* 训练状态显示 */}
+          {renderTrainingStatus()}
 
           {error && (
             <div style={{
@@ -375,6 +536,11 @@ function ModelTraining() {
               border: '1px solid #9ae6b4'
             }}>
               {success}
+              {trainingResult && trainingResult.mape && (
+                <div style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
+                  📊 MAPE: {trainingResult.mape.toFixed(2)}%
+                </div>
+              )}
             </div>
           )}
 
@@ -398,7 +564,7 @@ function ModelTraining() {
               gap: '0.5rem'
             }}
           >
-            {loading ? '⏳' : '🚀'} {loading ? getText('training.training') : getText('training.startTraining')}
+            {loading ? '⏳' : '🚀'} {loading ? getText('training.trainingInProgress') : getText('training.startTraining')}
           </button>
         </div>
       </div>

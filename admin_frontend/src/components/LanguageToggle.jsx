@@ -12,6 +12,12 @@ function LanguageToggle() {
     console.log("语言切换按钮被点击，当前语言:", language); // 添加调试日志
     toggleLanguage();
     console.log("toggleLanguage函数已调用");
+    
+    // 触发自定义事件通知App组件语言已变化
+    setTimeout(() => {
+      const newLanguage = localStorage.getItem('language') || 'zh';
+      window.dispatchEvent(new CustomEvent('languageChanged', { detail: newLanguage }));
+    }, 100);
   };
 
   return (

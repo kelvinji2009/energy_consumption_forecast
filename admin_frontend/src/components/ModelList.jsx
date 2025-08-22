@@ -3,13 +3,17 @@ import apiClient from '../apiClient';
 import { useLanguage } from '../contexts/LanguageContext';
 
 function ModelList() {
+  console.log('ModelList: Component rendered at', new Date().toLocaleTimeString());
   const { t } = useLanguage();
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchModels = useCallback(async () => {
-    setLoading(true);
+  const fetchModels = useCallback(async (showLoading = false) => {
+    console.log('ModelList: fetchModels called at', new Date().toLocaleTimeString());
+    if (showLoading) {
+      setLoading(true);
+    }
     try {
       const data = await apiClient('/admin/models');
       setModels(data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
@@ -18,15 +22,24 @@ function ModelList() {
       console.error("Error fetching models:", error);
       setError(error.message);
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    fetchModels();
-    const interval = setInterval(fetchModels, 5000);
-    return () => clearInterval(interval);
-  }, [fetchModels]);
+    console.log('ModelList: useEffect mounted, setting up interval');
+    fetchModels(true); // 初始加载显示loading
+    // 每5秒刷新数据，而不是整个页面
+    const interval = setInterval(() => {
+      fetchModels(false); // 定时刷新不显示loading，避免闪烁
+    }, 5000);
+    return () => {
+      console.log('ModelList: useEffect cleanup, clearing interval');
+      clearInterval(interval);
+    };
+  }, []); // 移除fetchModels依赖，避免重复执行
 
   const getStatusStyle = (status) => {
     switch (status) {
@@ -139,7 +152,7 @@ function ModelList() {
             🤖 {t.models.title}
           </h2>
           <button
-            onClick={fetchModels}
+            onClick={() => fetchModels(true)}
             disabled={loading}
             style={{
               padding: '0.75rem 1.5rem',
@@ -261,10 +274,10 @@ function ModelList() {
                       </strong>
                       <span style={{ 
                         marginLeft: '0.5rem', 
-                        color: model.metrics.mape < 0.1 ? '#38a169' : model.metrics.mape < 0.2 ? '#ed8936' : '#e53e3e',
+                        color: model.metrics.mape < 10 ? '#38a169' : model.metrics.mape < 20 ? '#ed8936' : '#e53e3e',
                         fontWeight: '600'
                       }}>
-                        {model.metrics.mape ? `${(model.metrics.mape * 100).toFixed(2)}%` : 'N/A'}
+                        {model.metrics.mape ? `${model.metrics.mape.toFixed(2)}%` : 'N/A'}
                       </span>
                     </div>
                   )}
