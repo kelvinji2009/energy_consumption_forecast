@@ -506,22 +506,27 @@ def detect_anomalies(
             
     except Exception as e:
         print(f"[DEBUG] Could not get detector threshold info: {e}")
+
+    # 🔧 直接使用用户的敏感度参数创建新检测器
+    user_detector = QuantileDetector(high_quantile=sensitivity)
+    user_detector.fit(residuals)
+    anomaly_scores = user_detector.detect(residuals)
     
-    # 🔧 TEMP FIX: 如果检测器没有检测到异常，尝试动态调整阈值
-    if (anomaly_scores_pd == 1).sum() == 0:
-        print(f"[DEBUG] No anomalies detected with original detector, trying dynamic threshold...")
+    # # 🔧 TEMP FIX: 如果检测器没有检测到异常，尝试动态调整阈值
+    # if (anomaly_scores_pd == 1).sum() == 0:
+    #     print(f"[DEBUG] No anomalies detected with original detector, trying dynamic threshold...")
         
-        # 使用95%分位数作为新阈值
-        residuals_values = residuals.values().flatten()
-        sensitivity_percentile = sensitivity * 100
-        dynamic_threshold = np.percentile(residuals_values, sensitivity_percentile)
-        print(f"[DEBUG] Using dynamic threshold ({sensitivity_percentile:.1f}th percentile): {dynamic_threshold:.6f}")
+    #     # 使用95%分位数作为新阈值
+    #     residuals_values = residuals.values().flatten()
+    #     sensitivity_percentile = sensitivity * 100
+    #     dynamic_threshold = np.percentile(residuals_values, sensitivity_percentile)
+    #     print(f"[DEBUG] Using dynamic threshold ({sensitivity_percentile:.1f}th percentile): {dynamic_threshold:.6f}")
         
-        # 创建临时检测器
-        temp_detector = QuantileDetector(high_quantile=sensitivity)
-        temp_detector.fit(residuals)
-        anomaly_scores = temp_detector.detect(residuals)
-        print(f"[DEBUG] Dynamic detector found {(anomaly_scores.pd_series() == 1).sum()} anomalies")
+    #     # 创建临时检测器
+    #     temp_detector = QuantileDetector(high_quantile=sensitivity)
+    #     temp_detector.fit(residuals)
+    #     anomaly_scores = temp_detector.detect(residuals)
+    #     print(f"[DEBUG] Dynamic detector found {(anomaly_scores.pd_series() == 1).sum()} anomalies")
     
     # Filter for actual anomalies (where score is 1)
     # Convert original_series_aligned to pandas Series for flexible indexing
