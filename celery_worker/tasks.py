@@ -37,9 +37,11 @@ def get_s3_client():
     )
 
 @celery_app.task(bind=True, name="train_model_task")
-def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, model_type: str, n_epochs: int = 20):
+def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, model_type: str, n_epochs: int = 20, 
+                     input_chunk_length: int = None, output_chunk_length: int = None):
     """
     Celery task to train a model, save artifacts to S3, and update the database.
+    Supports custom parameters that override MODEL_CONFIGS defaults.
     """
     task_id = self.request.id
     print(f"[Task {task_id}] Starting training for model_id: {model_id}, asset_id: {asset_id}")
@@ -65,15 +67,31 @@ def train_model_task(self, model_id: int, asset_id: str, s3_data_path: str, mode
         data_content = response['Body'].read()
         df = pd.read_csv(BytesIO(data_content), index_col='timestamp', parse_dates=True)
 
-        # 3. Call the core training service
+        # 3. Call the core training service with custom parameters
         self.update_state(state='PROGRESS', meta={'status': f'Training {model_type} model...'})
+        
+        # 传递前端参数，如果为None则使用MODEL_CONFIGS默认值
+        training_params = {
+            'model_type': model_type,
+            'data': df,
+            'n_epochs': n_epochs
+        }
+        
+        # 只有当参数不为None时才传递，让训练服务使用MODEL_CONFIGS默认值
+        if input_chunk_length is not None:
+            training_params['input_chunk_length'] = input_chunk_length
+        if output_chunk_length is not None:
+            training_params['output_chunk_length'] = output_chunk_length
+            
+        print(f"[Task {task_id}] Training with params: {training_params}")
+        
         if model_type == "TFT":
-            model, scaler_target, scaler_past_cov, scaler_cov, metrics = train_model(model_type=model_type, data=df, n_epochs=n_epochs)
+            model, scaler_target, scaler_past_cov, scaler_cov, metrics = train_model(**training_params)
         elif model_type == "TFT (No Past Covariates)":
-            model, scaler_target, scaler_cov, metrics = train_model(model_type=model_type, data=df, n_epochs=n_epochs)
+            model, scaler_target, scaler_cov, metrics = train_model(**training_params)
             scaler_past_cov = None
         else:
-            model, scaler_target, scaler_cov, metrics = train_model(model_type=model_type, data=df, n_epochs=n_epochs)
+            model, scaler_target, scaler_cov, metrics = train_model(**training_params)
             scaler_past_cov = None
 
         # 4. Fit anomaly detector

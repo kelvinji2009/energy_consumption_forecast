@@ -3,6 +3,7 @@ import os
 import uuid
 import bcrypt
 import boto3
+import json
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -344,12 +345,24 @@ def create_training_job(job_request: TrainingJobCreate, db: Session = Depends(ge
     db.commit()
     db.refresh(new_model)
 
+    # Extract custom parameters from request
+    custom_params = {}
+    if job_request.parameters:
+        for param in job_request.parameters:
+            if param.parameter_name in ['input_chunk_length', 'output_chunk_length']:
+                try:
+                    custom_params[param.parameter_name] = int(param.parameter_value)
+                except ValueError:
+                    print(f"Warning: Invalid parameter value for {param.parameter_name}: {param.parameter_value}")
+    
     task = train_model_task.delay(
         model_id=new_model.id,
         asset_id=new_model.asset_id,
         s3_data_path=job_request.s3_data_path,
         model_type=job_request.model_type,
-        n_epochs=job_request.n_epochs
+        n_epochs=job_request.n_epochs,
+        input_chunk_length=custom_params.get('input_chunk_length'),
+        output_chunk_length=custom_params.get('output_chunk_length')
     )
     
     print(f"[Admin API] Queued training task {task.id} for model {new_model.id}")
@@ -369,7 +382,7 @@ async def create_training_job_from_csv(
     model_type: str = Form(...),
     n_epochs: int = Form(20),
     description: Optional[str] = Form(None),
-    parameters: Optional[str] = Form(None),  # JSON字符串形式的参数
+    parameters: Optional[str] = Form(None),  # JSON string of parameters
     file: UploadFile = File(...)
 ):
     """
@@ -400,30 +413,45 @@ async def create_training_job_from_csv(
         status="PENDING",
         description=final_description,
         model_version=f"pending_{uuid.uuid4().hex[:8]}",
-        training_data_path=s3_key, # Store the path to the uploaded data
+        training_data_path=s3_key,
         created_at=datetime.now(timezone.utc)
     )
     db.add(new_model)
     db.commit()
     db.refresh(new_model)
 
-    # 4. 保存训练参数
+    # 4. FIX: Parse parameters, save to DB, AND extract for Celery task all at once
+    custom_params = {}
     if parameters:
         try:
-            import json
-            params_data = json.loads(parameters)
-            for param_data in params_data:
-                param = ModelTrainingParameter(
+            # Parse the JSON string into a list of dictionaries
+            parsed_params_list = json.loads(parameters) 
+            
+            # Now, iterate over the list of dictionaries
+            for param_data in parsed_params_list:
+                # Save each parameter to the database
+                db.add(ModelTrainingParameter(
                     model_id=new_model.id,
                     parameter_name=param_data['parameter_name'],
-                    parameter_value=param_data['parameter_value'],
+                    parameter_value=str(param_data['parameter_value']),
                     parameter_type=param_data['parameter_type'],
                     parameter_category=param_data.get('parameter_category')
-                )
-                db.add(param)
-            db.commit()
-        except Exception as e:
-            print(f"Warning: Failed to save training parameters: {e}")
+                ))
+                
+                # And check for special parameters needed by the Celery task
+                # Use .get() for safer access in case the key doesn't exist
+                if param_data.get('parameter_name') in ['input_chunk_length', 'output_chunk_length']:
+                    try:
+                        custom_params[param_data['parameter_name']] = int(param_data['parameter_value'])
+                    except (ValueError, KeyError):
+                        print(f"Warning: Could not process special parameter from form: {param_data}. Skipping.")
+            
+            db.commit() # Commit all new parameters at once
+
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
+            # Catch potential errors during parsing or if keys are missing
+            print(f"Warning: Failed to parse or save training parameters: {e}")
+
 
     # 5. Dispatch Celery Task
     task = train_model_task.delay(
@@ -431,7 +459,9 @@ async def create_training_job_from_csv(
         asset_id=new_model.asset_id,
         s3_data_path=s3_key,
         model_type=model_type,
-        n_epochs=n_epochs
+        n_epochs=n_epochs,
+        input_chunk_length=custom_params.get('input_chunk_length'),
+        output_chunk_length=custom_params.get('output_chunk_length')
     )
     
     print(f"[Admin API] Queued training task {task.id} for model {new_model.id} from uploaded CSV.")

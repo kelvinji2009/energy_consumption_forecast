@@ -11,19 +11,28 @@ from darts.metrics import mape
 from darts.utils.timeseries_generation import datetime_attribute_timeseries
 from darts.ad import QuantileDetector
 
+from .model_configs import get_model_config
+
 # For reproducibility
 np.random.seed(42)
+
 
 def train_lgbm_model(
     data: pd.DataFrame,
     target_column: str,
-    input_chunk_length: int,
-    output_chunk_length: int,
+    input_chunk_length: int = None,
+    output_chunk_length: int = None,
     n_epochs: int = 20 # Added n_epochs, though not used by LightGBM
 ) -> Tuple[ForecastingModel, Scaler, Scaler, Dict[str, Any]]:
     """Trains a LightGBM forecasting model."""
-    # (Implementation is the same as before, but now it's a helper function)
-    print("--- Starting LGBM Model Training ---")
+    # 获取模型配置
+    config = get_model_config("LightGBM")
+    if input_chunk_length is None:
+        input_chunk_length = config["input_chunk_length"]
+    if output_chunk_length is None:
+        output_chunk_length = config["output_chunk_length"]
+    
+    print(f"--- Starting LGBM Model Training (input_len={input_chunk_length}, output_len={output_chunk_length}) ---")
     series_target = TimeSeries.from_series(data[target_column], freq='H').astype(np.float32)
     future_covariates = datetime_attribute_timeseries(series_target, attribute="hour", one_hot=True).stack(
         datetime_attribute_timeseries(series_target, attribute="day_of_week", one_hot=True)
@@ -41,10 +50,9 @@ def train_lgbm_model(
 
     model = LightGBMModel(
         lags=input_chunk_length,
-        lags_future_covariates=[0, output_chunk_length - 1],
+        lags_future_covariates=config["model_params"]["lags_future_covariates"],
         output_chunk_length=output_chunk_length,
-        random_state=42,
-        force_reset=True,
+        **{k: v for k, v in config["model_params"].items() if k != "lags_future_covariates"}
     )
     model.fit(series=train_target_scaled, future_covariates=train_cov_scaled)
     
@@ -58,12 +66,19 @@ def train_lgbm_model(
 def train_tide_model(
     data: pd.DataFrame,
     target_column: str,
-    input_chunk_length: int,
-    output_chunk_length: int,
+    input_chunk_length: int = None,
+    output_chunk_length: int = None,
     n_epochs: int = 20 # Added n_epochs
 ) -> Tuple[ForecastingModel, Scaler, Scaler, Dict[str, Any]]:
     """Trains a TiDE forecasting model."""
-    print("--- Starting TiDE Model Training ---")
+    # 获取模型配置
+    config = get_model_config("TiDE")
+    if input_chunk_length is None:
+        input_chunk_length = config["input_chunk_length"]
+    if output_chunk_length is None:
+        output_chunk_length = config["output_chunk_length"]
+    
+    print(f"--- Starting TiDE Model Training (input_len={input_chunk_length}, output_len={output_chunk_length}) ---")
     series_target = TimeSeries.from_series(data[target_column], freq='H').astype(np.float32)
     future_covariates = datetime_attribute_timeseries(series_target, attribute="hour", one_hot=True).stack(
         datetime_attribute_timeseries(series_target, attribute="day_of_week", one_hot=True)
@@ -82,10 +97,8 @@ def train_tide_model(
     model = TiDEModel(
         input_chunk_length=input_chunk_length,
         output_chunk_length=output_chunk_length,
-        hidden_size=64,
-        n_epochs=n_epochs, # Used n_epochs
-        random_state=42,
-        force_reset=True,
+        n_epochs=n_epochs,
+        **config["model_params"]
     )
     model.fit(series=train_target_scaled, future_covariates=train_cov_scaled, val_series=val_target_scaled, val_future_covariates=val_cov_scaled, verbose=True)
 
@@ -99,12 +112,19 @@ def train_tide_model(
 def train_lstm_model(
     data: pd.DataFrame,
     target_column: str,
-    input_chunk_length: int,
-    output_chunk_length: int,
+    input_chunk_length: int = None,
+    output_chunk_length: int = None,
     n_epochs: int = 20 # Added n_epochs
 ) -> Tuple[ForecastingModel, Scaler, Scaler, Dict[str, Any]]:
     """Trains an LSTM forecasting model."""
-    print("--- Starting LSTM Model Training ---")
+    # 获取模型配置
+    config = get_model_config("LSTM")
+    if input_chunk_length is None:
+        input_chunk_length = config["input_chunk_length"]
+    if output_chunk_length is None:
+        output_chunk_length = config["output_chunk_length"]
+    
+    print(f"--- Starting LSTM Model Training (input_len={input_chunk_length}, output_len={output_chunk_length}) ---")
     series_target = TimeSeries.from_series(data[target_column], freq='H').astype(np.float32)
     future_covariates = datetime_attribute_timeseries(series_target, attribute="hour", one_hot=True).stack(
         datetime_attribute_timeseries(series_target, attribute="day_of_week", one_hot=True)
@@ -121,13 +141,11 @@ def train_lstm_model(
     val_cov_scaled = scaler_cov.transform(val_cov)
 
     model = RNNModel(
-        model='LSTM',
         input_chunk_length=input_chunk_length,
         output_chunk_length=output_chunk_length,
         training_length=input_chunk_length,
-        n_epochs=n_epochs, # Used n_epochs
-        random_state=42,
-        force_reset=True,
+        n_epochs=n_epochs,
+        **config["model_params"]
     )
     model.fit(series=train_target_scaled, future_covariates=train_cov_scaled, val_series=val_target_scaled, val_future_covariates=val_cov_scaled, verbose=True)
 
@@ -141,12 +159,19 @@ def train_lstm_model(
 def train_tft_model(
     data: pd.DataFrame,
     target_column: str,
-    input_chunk_length: int,
-    output_chunk_length: int,
+    input_chunk_length: int = None,
+    output_chunk_length: int = None,
     n_epochs: int = 20 # Added n_epochs
 ) -> Tuple[ForecastingModel, Scaler, Scaler, Scaler, Dict[str, Any]]: # Added Scaler for past_covariates
     """Trains a TFT forecasting model."""
-    print("--- Starting TFT Model Training ---")
+    # 获取模型配置
+    config = get_model_config("TFT")
+    if input_chunk_length is None:
+        input_chunk_length = config["input_chunk_length"]
+    if output_chunk_length is None:
+        output_chunk_length = config["output_chunk_length"]
+    
+    print(f"--- Starting TFT Model Training (input_len={input_chunk_length}, output_len={output_chunk_length}) ---")
     series_target = TimeSeries.from_series(data[target_column], freq='H').astype(np.float32)
     
     # Past covariates for TFT
@@ -174,14 +199,8 @@ def train_tft_model(
     model = TFTModel(
         input_chunk_length=input_chunk_length,
         output_chunk_length=output_chunk_length,
-        hidden_size=64,
-        lstm_layers=1,
-        num_attention_heads=4,
-        dropout=0.1,
-        batch_size=16,
-        n_epochs=n_epochs, # Used n_epochs
-        random_state=42,
-        force_reset=True,
+        n_epochs=n_epochs,
+        **config["model_params"]
     )
     model.fit(
         series=train_target_scaled,
@@ -212,12 +231,19 @@ def train_tft_model(
 def train_tft_no_past_cov_model(
     data: pd.DataFrame,
     target_column: str,
-    input_chunk_length: int,
-    output_chunk_length: int,
+    input_chunk_length: int = None,
+    output_chunk_length: int = None,
     n_epochs: int = 20 # Added n_epochs
 ) -> Tuple[ForecastingModel, Scaler, Scaler, Dict[str, Any]]: # No Scaler for past_covariates
     """Trains a TFT forecasting model without past covariates."""
-    print("--- Starting TFT (No Past Covariates) Model Training ---")
+    # 获取模型配置
+    config = get_model_config("TFT (No Past Covariates)")
+    if input_chunk_length is None:
+        input_chunk_length = config["input_chunk_length"]
+    if output_chunk_length is None:
+        output_chunk_length = config["output_chunk_length"]
+    
+    print(f"--- Starting TFT (No Past Covariates) Model Training (input_len={input_chunk_length}, output_len={output_chunk_length}) ---")
     series_target = TimeSeries.from_series(data[target_column], freq='H').astype(np.float32)
     
     future_covariates = datetime_attribute_timeseries(series_target, attribute="hour", one_hot=True).stack(
@@ -238,14 +264,8 @@ def train_tft_no_past_cov_model(
     model = TFTModel(
         input_chunk_length=input_chunk_length,
         output_chunk_length=output_chunk_length,
-        hidden_size=64,
-        lstm_layers=1,
-        num_attention_heads=4,
-        dropout=0.1,
-        batch_size=16,
-        n_epochs=n_epochs, # Used n_epochs
-        random_state=42,
-        force_reset=True,
+        n_epochs=n_epochs,
+        **config["model_params"]
     )
     model.fit(
         series=train_target_scaled,
@@ -283,18 +303,21 @@ def train_model(
     model_type: str,
     data: pd.DataFrame,
     target_column: str = 'energy_kwh',
-    input_chunk_length: int = 24 * 7,
-    output_chunk_length: int = 24,
-    n_epochs: int = 20 # Added n_epochs
-) -> Tuple[ForecastingModel, Scaler, Scaler, Scaler, Dict[str, Any]]: # Updated return type for TFT
+    input_chunk_length: int = None,  # 现在使用动态配置
+    output_chunk_length: int = None,  # 现在使用动态配置
+    n_epochs: int = 20
+) -> Tuple[ForecastingModel, Scaler, Scaler, Scaler, Dict[str, Any]]:
     """
     Dispatches to the correct model training function based on model_type.
+    Uses optimized parameters for each model type.
     """
     trainer = MODEL_TRAINERS.get(model_type)
     if not trainer:
         raise ValueError(f"Unsupported model type: {model_type}. Supported types are: {list(MODEL_TRAINERS.keys())}")
     
-    # Call the trainer with appropriate arguments
+    print(f"🚀 Training {model_type} model with optimized parameters...")
+    
+    # Call the trainer with appropriate arguments (all trainers now support None for chunk lengths)
     if model_type == "TFT":
         return trainer(
             data=data,
@@ -336,12 +359,12 @@ def fit_anomaly_detector(
     print("--- Fitting Anomaly Detector ---")
     print(f"[DEBUG TRAINING] Input series range: {series.values().min():.6f} to {series.values().max():.6f}")
     
-    # Generate historical forecasts
+    # Generate historical forecasts (using 30% of data for better anomaly detector training)
     historical_forecasts_scaled = model.historical_forecasts(
         series,
         past_covariates=past_covariates,
         future_covariates=future_covariates,
-        start=0.1,
+        start=0.3,
         forecast_horizon=1,
         stride=1,
         retrain=False,
@@ -408,12 +431,12 @@ def detect_anomalies(
     print(f"  - Sample values: {series.values()[:5].flatten()}")
     print(f"  - Has scaler: {scaler is not None}")
     
-    # Generate historical forecasts for the new data
+    # Generate historical forecasts for the new data (using 30% of data)
     historical_forecasts_scaled = model.historical_forecasts(
         series,
         past_covariates=past_covariates,
         future_covariates=future_covariates,
-        start=0.1,
+        start=0.3,
         forecast_horizon=1,
         stride=1,
         retrain=False,
